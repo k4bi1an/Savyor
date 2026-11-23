@@ -56,6 +56,9 @@ export default function ReelListRow({
   const proxyThumb = media.proxy_thumb_url
     ? `${media.proxy_thumb_url}${activeToken ? `${media.proxy_thumb_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(activeToken)}` : ''}`
     : '';
+  const streamSrc = media.stream_url
+    ? `${media.stream_url}${activeToken ? `${media.stream_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(activeToken)}` : ''}`
+    : '';
 
   const thumbSrc = imgError
     ? (media.thumbnail || '')
@@ -86,15 +89,21 @@ export default function ReelListRow({
       <div
         className="w-[56px] h-[100px] shrink-0 relative overflow-hidden rounded-[8px] border border-[#E8E6E1] bg-[#F2F0EB]"
       >
-        {thumbSrc ? (
+        {!imgError && thumbSrc ? (
           <img
             src={thumbSrc}
             alt={reel.title}
-            onError={() => {
-              if (!imgError && media.thumbnail) setImgError(true);
-            }}
+            onError={() => setImgError(true)}
             className="w-full h-full object-cover"
             loading="lazy"
+          />
+        ) : streamSrc ? (
+          <video
+            src={`${streamSrc}#t=0.001`}
+            preload="metadata"
+            muted
+            playsInline
+            className="w-full h-full object-cover pointer-events-none"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-[#6B6B6B]">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Loader2, Plus, X, RefreshCw, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Loader2, Plus, X, RefreshCw, SlidersHorizontal, Trash2, CheckCircle2 } from 'lucide-react';
 import Header from './components/Header';
 import ReelCard from './components/ReelCard';
 import ReelListRow from './components/ReelListRow';
@@ -247,6 +247,9 @@ export default function App() {
             if (data.status === 'done') {
               fetchAllReels();
               fetchCategories();
+              setTimeout(() => {
+                setJobs((prev) => prev.filter((j) => j.id !== job.id));
+              }, 1200);
             }
           }
         } catch (err) {
@@ -257,6 +260,17 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [jobs, apiFetch, fetchAllReels, fetchCategories]);
+
+  // Clean up any finished jobs from state so progress card never stays stuck
+  useEffect(() => {
+    const doneJobs = jobs.filter((j) => j.status === 'done');
+    if (doneJobs.length > 0) {
+      const timer = setTimeout(() => {
+        setJobs((prev) => prev.filter((j) => j.status !== 'done'));
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [jobs]);
 
   // Queue a new reel
   const handleSaveReel = async (url) => {
@@ -928,6 +942,41 @@ export default function App() {
                         );
                       }
 
+                      if (job.status === 'done') {
+                        return (
+                          <div
+                            key={job.id}
+                            className="rounded-[12px] border border-[#2F5D50]/30 bg-[#F6F5F2] p-4 flex flex-col justify-between text-left"
+                            style={{ aspectRatio: '9/16' }}
+                          >
+                            <div className="flex items-center justify-between text-xs text-[#2F5D50]">
+                              <span className="font-medium">Saved!</span>
+                              <button
+                                onClick={() => handleDismissJob(job.id)}
+                                className="text-[#6B6B6B] hover:text-[#1A1A1A] p-0.5"
+                                title="Dismiss"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+
+                            <div className="my-auto text-center px-2">
+                              <CheckCircle2 size={24} className="text-[#2F5D50] mx-auto mb-2" />
+                              <p className="font-serif text-sm font-medium text-[#1A1A1A]">
+                                Saved to vault
+                              </p>
+                              <p className="text-xs text-[#6B6B6B] mt-1">
+                                Ready in library
+                              </p>
+                            </div>
+
+                            <div className="w-full bg-[#E8E6E1] h-1 rounded overflow-hidden">
+                              <div className="bg-[#2F5D50] h-full w-full transition-all duration-300" />
+                            </div>
+                          </div>
+                        );
+                      }
+
                       return (
                         <div
                           key={job.id}
@@ -936,7 +985,16 @@ export default function App() {
                         >
                           <div className="flex items-center justify-between text-xs text-[#6B6B6B]">
                             <span className="capitalize">{job.status}...</span>
-                            <Loader2 size={13} className="animate-spin text-[#2F5D50]" />
+                            <div className="flex items-center gap-1.5">
+                              <Loader2 size={13} className="animate-spin text-[#2F5D50]" />
+                              <button
+                                onClick={() => handleDismissJob(job.id)}
+                                className="text-[#6B6B6B] hover:text-[#1A1A1A] p-0.5"
+                                title="Dismiss"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
                           </div>
 
                           <div className="my-auto text-center px-2">
