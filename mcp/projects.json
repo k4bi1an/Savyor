@@ -1,0 +1,11 @@
+{
+  "projects": {
+    "savyor": {
+      "path": "C:/Users/kabil/OneDrive/Documents/Insta Saver",
+      "commands": {
+        "build_frontend": "npm --prefix frontend run build",
+        "test": ".venv\\Scripts\\python.exe -m pytest tests/test_savyor.py -v"
+      }
+    }
+  }
+}

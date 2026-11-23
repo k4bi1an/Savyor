@@ -1,0 +1,39 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Databases
+reels.db
+*.db
+*.db-wal
+*.db-shm
+
+# Media storage
+media/
+media_backup/
+
+# Virtual environments
+.venv/
+.fresh_venv/
+venv/
+
+# Dependencies & Build artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+build/
+
+# MCP local tokens and environments
+mcp/.token
+mcp/.venv/
+
+# Caches & Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Data artifacts
+processed_cards.json
