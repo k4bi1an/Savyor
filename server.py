@@ -10,7 +10,9 @@ from typing import Optional, List, Dict, Any
 from collections import defaultdict
 
 import requests
-from fastapi import FastAPI, HTTPException, Request, Response, BackgroundTasks, Depends, Header
+import shutil
+import subprocess
+from fastapi import FastAPI, HTTPException, Request, Response, BackgroundTasks, Depends, Header, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -348,6 +350,123 @@ def run_reel_processing_job(job_id: str, url: str):
         print(f"Job {job_id} failed: {error_msg}")
         db.update_job(job_id, status="failed", progress="Failed to process reel", error=error_msg)
 
+def generate_thumbnail_ffmpeg(video_path: str, thumb_path: str) -> Optional[str]:
+    if not shutil.which("ffmpeg"):
+        return None
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-ss", "00:00:01",
+            "-i", video_path,
+            "-vframes", "1",
+            "-vf", "scale=720:-1",
+            thumb_path
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if res.returncode == 0 and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
+            return thumb_path
+        cmd[3] = "00:00:00"
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if res.returncode == 0 and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
+            return thumb_path
+    except Exception as e:
+        print(f"Thumbnail generation failed: {e}")
+    return None
+
+def run_upload_processing_job(job_id: str, upload_id: str, video_path: str, thumb_path: Optional[str], original_filename: str):
+    def update_progress(msg: str):
+        current_status = "analyzing"
+        if "saved" in msg:
+            current_status = "done"
+        db.update_job(job_id, status=current_status, progress=msg)
+
+    try:
+        db.update_job(job_id, status="analyzing", progress="Starting AI analysis...", reel_id=upload_id)
+        saved_card = process_reel.process_and_save_upload(
+            upload_id=upload_id,
+            video_path=video_path,
+            thumb_path=thumb_path,
+            original_filename=original_filename,
+            progress_callback=update_progress
+        )
+        db.update_job(job_id, status="done", progress="Processing complete!", reel_id=saved_card["id"])
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Upload job {job_id} failed: {error_msg}")
+        db.update_job(job_id, status="failed", progress="Failed to process uploaded video", error=error_msg)
+
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
+
+@app.post("/api/reels/upload", status_code=202)
+async def upload_video(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    auth: str = Depends(require_auth)
+):
+    filename = file.filename or ""
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in [".mp4", ".mov"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file extension. Only .mp4 and .mov files are allowed."
+        )
+
+    upload_id = f"upload_{uuid.uuid4().hex[:12]}"
+    videos_dir = db.get_videos_dir()
+    thumbs_dir = db.get_thumbs_dir()
+    os.makedirs(videos_dir, exist_ok=True)
+    os.makedirs(thumbs_dir, exist_ok=True)
+
+    dest_video_path = os.path.join(videos_dir, f"{upload_id}{ext}")
+    dest_thumb_path = os.path.join(thumbs_dir, f"{upload_id}.jpg")
+
+    chunk_size = 1024 * 1024  # 1 MB chunk
+    first_chunk = await file.read(chunk_size)
+    if not first_chunk or len(first_chunk) < 8:
+        raise HTTPException(status_code=400, detail="Invalid video file: file is empty or corrupted.")
+
+    if first_chunk[4:8] != b"ftyp":
+        raise HTTPException(status_code=400, detail="Invalid video signature. File is not a valid MP4 or MOV.")
+
+    total_bytes = len(first_chunk)
+    if total_bytes > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Maximum allowed size is 100 MB.")
+
+    try:
+        with open(dest_video_path, "wb") as f:
+            f.write(first_chunk)
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_UPLOAD_SIZE:
+                    f.close()
+                    if os.path.exists(dest_video_path):
+                        os.remove(dest_video_path)
+                    raise HTTPException(status_code=413, detail="File too large. Maximum allowed size is 100 MB.")
+                f.write(chunk)
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(dest_video_path):
+            os.remove(dest_video_path)
+        raise HTTPException(status_code=500, detail=f"Failed to save video: {str(e)}")
+
+    thumb_path = generate_thumbnail_ffmpeg(dest_video_path, dest_thumb_path)
+
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    db.create_job(job_id, f"upload://{upload_id}")
+    background_tasks.add_task(
+        run_upload_processing_job,
+        job_id,
+        upload_id,
+        dest_video_path,
+        thumb_path,
+        filename
+    )
+
+    return {"job_id": job_id, "status": "queued", "reel_id": upload_id}
+
 @app.post("/api/reels", status_code=202)
 def enqueue_save_reel(req: SaveReelRequest, background_tasks: BackgroundTasks, auth: str = Depends(require_auth)):
     url = req.url.strip()
@@ -388,17 +507,24 @@ def check_job_status(job_id: str, auth: str = Depends(require_auth)):
 # Media Proxies (Support signed session cookie and token auth)
 @app.get("/api/proxy/video/{reel_id}")
 def proxy_video(reel_id: str, request: Request, auth: str = Depends(require_auth)):
-    local_path = os.path.join(db.get_videos_dir(), f"{reel_id}.mp4")
+    local_path = None
+    for candidate_ext in [".mp4", ".mov"]:
+        p = os.path.join(db.get_videos_dir(), f"{reel_id}{candidate_ext}")
+        if os.path.exists(p):
+            local_path = p
+            break
+
     reel = None
-    if not os.path.exists(local_path):
+    if not local_path or not os.path.exists(local_path):
         reel = db.get_reel_by_id(reel_id)
         if reel and reel.get("media", {}).get("local_video_path"):
             candidate = reel["media"]["local_video_path"]
             if os.path.exists(candidate):
                 local_path = candidate
 
-    if os.path.exists(local_path):
-        return FileResponse(local_path, media_type="video/mp4", filename=f"{reel_id}.mp4")
+    if local_path and os.path.exists(local_path):
+        media_type = "video/quicktime" if local_path.lower().endswith(".mov") else "video/mp4"
+        return FileResponse(local_path, media_type=media_type, filename=os.path.basename(local_path))
     
     if not reel:
         reel = db.get_reel_by_id(reel_id)
@@ -483,8 +609,10 @@ def remove_reel(reel_id: str, auth: str = Depends(require_auth)):
     db.delete_reel(reel_id)
     candidates = [
         os.path.join(db.get_videos_dir(), f"{reel_id}.mp4"),
+        os.path.join(db.get_videos_dir(), f"{reel_id}.mov"),
         os.path.join(db.get_thumbs_dir(), f"{reel_id}.jpg"),
         f"media/videos/{reel_id}.mp4",
+        f"media/videos/{reel_id}.mov",
         f"media/thumbs/{reel_id}.jpg"
     ]
     if reel:

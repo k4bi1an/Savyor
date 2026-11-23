@@ -109,6 +109,7 @@ def init_db():
         status TEXT NOT NULL DEFAULT 'unread',
         reviewed_at TIMESTAMP,
         suggested_new_category TEXT,
+        source TEXT NOT NULL DEFAULT 'instagram',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -144,6 +145,8 @@ def init_db():
         cursor.execute("ALTER TABLE reels ADD COLUMN reviewed_at TIMESTAMP")
     if "suggested_new_category" not in cols:
         cursor.execute("ALTER TABLE reels ADD COLUMN suggested_new_category TEXT")
+    if "source" not in cols:
+        cursor.execute("ALTER TABLE reels ADD COLUMN source TEXT NOT NULL DEFAULT 'instagram'")
 
     # Migrate category_id for reels where category_id IS NULL
     cursor.execute("SELECT id, category FROM reels WHERE category_id IS NULL OR category_id = ''")
@@ -337,13 +340,15 @@ def save_reel(card: dict):
         match = cursor.fetchone()
         category_id = match["id"] if match else "other"
     
+    source = card.get("source") or media.get("source") or "instagram"
+
     cursor.execute("""
     INSERT OR REPLACE INTO reels (
         id, title, category, category_id, tags, summary, transcript, key_takeaways,
         extracted_resources, structured_content, uploader, channel,
         thumbnail, local_video_path, local_thumb_path, direct_video_url, webpage_url,
-        status, suggested_new_category
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status, suggested_new_category, source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         reel_id,
         card.get("title", "Untitled"),
@@ -363,7 +368,8 @@ def save_reel(card: dict):
         media.get("direct_video_url", ""),
         media.get("webpage_url", ""),
         card.get("status", "unread"),
-        card.get("suggested_new_category")
+        card.get("suggested_new_category"),
+        source
     ))
     conn.commit()
     conn.close()
@@ -397,11 +403,13 @@ def get_reels(search: str = "", category: str = "", status: str = "") -> List[Di
     
     results = []
     for r in rows:
+        r_source = r["source"] if ("source" in r.keys() and r["source"]) else "instagram"
         results.append({
             "id": r["id"],
             "title": r["title"],
             "category": r["category"],
             "category_id": r["category_id"],
+            "source": r_source,
             "tags": json.loads(r["tags"] or "[]"),
             "summary": r["summary"],
             "transcript": r["transcript"],
@@ -415,6 +423,7 @@ def get_reels(search: str = "", category: str = "", status: str = "") -> List[Di
                 "id": r["id"],
                 "uploader": r["uploader"],
                 "channel": r["channel"],
+                "source": r_source,
                 "thumbnail": r["thumbnail"],
                 "local_video_path": r["local_video_path"],
                 "local_thumb_path": r["local_thumb_path"],
@@ -436,11 +445,13 @@ def get_reel_by_id(reel_id: str) -> Optional[Dict[str, Any]]:
     conn.close()
     if not r:
         return None
+    r_source = r["source"] if ("source" in r.keys() and r["source"]) else "instagram"
     return {
         "id": r["id"],
         "title": r["title"],
         "category": r["category"],
         "category_id": r["category_id"],
+        "source": r_source,
         "tags": json.loads(r["tags"] or "[]"),
         "summary": r["summary"],
         "transcript": r["transcript"],
@@ -454,6 +465,7 @@ def get_reel_by_id(reel_id: str) -> Optional[Dict[str, Any]]:
             "id": r["id"],
             "uploader": r["uploader"],
             "channel": r["channel"],
+            "source": r_source,
             "thumbnail": r["thumbnail"],
             "local_video_path": r["local_video_path"],
             "local_thumb_path": r["local_thumb_path"],

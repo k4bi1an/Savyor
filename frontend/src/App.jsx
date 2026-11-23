@@ -119,7 +119,7 @@ export default function App() {
       const activeToken = localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token') || '';
       const headers = {
         'X-API-Token': activeToken,
-        'Content-Type': 'application/json',
+        ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
         ...(options.headers || {}),
       };
       return fetch(url, { ...options, headers, credentials: 'include' });
@@ -296,9 +296,47 @@ export default function App() {
     }
   };
 
+  // Upload a video directly
+  const handleUploadVideo = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await apiFetch('/api/reels/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (res.status === 401) {
+      setIsAuthenticated(false);
+      throw new Error('Vault is locked. Please unlock first.');
+    }
+
+    if (res.status === 413) {
+      throw new Error('Video file exceeds 100 MB limit.');
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to upload video.');
+    }
+
+    const data = await res.json();
+    setJobs((prev) => [
+      {
+        id: data.job_id,
+        url: file.name,
+        status: data.status || 'queued',
+        progress: 'Queued for processing...',
+      },
+      ...prev,
+    ]);
+  };
+
   const handleRetryJob = async (job) => {
     setJobs((prev) => prev.filter((j) => j.id !== job.id));
-    await handleSaveReel(job.url);
+    if (job.url && !job.url.startsWith('upload://') && job.url.includes('instagram.com/')) {
+      await handleSaveReel(job.url);
+    }
   };
 
   const handleDismissJob = (jobId) => {
@@ -1019,6 +1057,7 @@ export default function App() {
           setSharedPrefillUrl('');
         }}
         onSave={handleSaveReel}
+        onUpload={handleUploadVideo}
       />
 
       {/* Manage Categories Modal */}

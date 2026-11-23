@@ -301,3 +301,144 @@ def test_session_cookie_secure_flag(monkeypatch):
     assert r4.status_code == 200
     set_cookie_no_trust = r4.headers.get("set-cookie", "")
     assert "secure" not in set_cookie_no_trust.lower()
+
+# 12. Video Upload Tests
+VALID_MP4_HEADER = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00isommp42\x00\x00\x00\x08free"
+VALID_MOV_HEADER = b"\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  \x00\x00\x00\x08free"
+
+def test_upload_unauthenticated_rejected():
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+
+    files = {"file": ("test.mp4", VALID_MP4_HEADER, "video/mp4")}
+    r = client.post("/api/reels/upload", files=files)
+    assert r.status_code == 401
+    assert "Unauthorized" in r.json().get("detail", "")
+
+def test_upload_wrong_extension_rejected():
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    client.post("/api/login", json={"passcode": "test_custom_passcode_2026"})
+
+    for bad_name in ["video.avi", "clip.mkv", "image.png", "notes.txt"]:
+        files = {"file": (bad_name, VALID_MP4_HEADER, "application/octet-stream")}
+        r = client.post("/api/reels/upload", files=files)
+        assert r.status_code == 400
+        assert "Only .mp4 and .mov files are allowed" in r.json().get("detail", "")
+
+def test_upload_fake_mp4_rejected():
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    client.post("/api/login", json={"passcode": "test_custom_passcode_2026"})
+
+    fake_bytes = b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x02\x00"
+    files = {"file": ("fake_video.mp4", fake_bytes, "video/mp4")}
+    r = client.post("/api/reels/upload", files=files)
+    assert r.status_code == 400
+    assert "Invalid video signature" in r.json().get("detail", "")
+
+    empty_files = {"file": ("empty.mp4", b"", "video/mp4")}
+    r_empty = client.post("/api/reels/upload", files=empty_files)
+    assert r_empty.status_code == 400
+
+def test_upload_oversize_rejected(monkeypatch):
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    client.post("/api/login", json={"passcode": "test_custom_passcode_2026"})
+
+    assert server.MAX_UPLOAD_SIZE == 100 * 1024 * 1024
+
+    # Temporarily set max limit to 30 bytes to test 413 without generating 100MB in memory
+    monkeypatch.setattr(server, "MAX_UPLOAD_SIZE", 30)
+
+    oversize_payload = VALID_MP4_HEADER + b"X" * 100
+    files = {"file": ("big_video.mp4", oversize_payload, "video/mp4")}
+    r = client.post("/api/reels/upload", files=files)
+    assert r.status_code == 413
+    assert "File too large" in r.json().get("detail", "")
+
+def test_upload_valid_mp4_and_delete_removes_files(monkeypatch):
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    client.post("/api/login", json={"passcode": "test_custom_passcode_2026"})
+
+    files = {"file": ("my_cool_clip.mp4", VALID_MP4_HEADER + b"\x00" * 64, "video/mp4")}
+    r = client.post("/api/reels/upload", files=files)
+    assert r.status_code == 202
+    data = r.json()
+    assert data["status"] == "queued"
+    job_id = data["job_id"]
+    reel_id = data["reel_id"]
+    assert reel_id.startswith("upload_")
+
+    expected_video_path = os.path.join(db.get_videos_dir(), f"{reel_id}.mp4")
+    assert os.path.exists(expected_video_path)
+
+    # Mock Gemini analysis for background processing
+    mock_ai_card = process_reel.ReelKnowledgeCard(
+        title="Direct Uploaded Video Tutorial",
+        category="Tech & Code",
+        suggested_new_category=None,
+        tags=["upload", "tutorial"],
+        summary="A comprehensive video on Python direct upload and analysis.",
+        transcript="In this video we are demonstrating the upload workflow.",
+        key_takeaways=["Direct upload works seamlessly", "Stored with upload source marker"],
+        extracted_resources=[],
+        structured_content=process_reel.StructuredContent(
+            type="tutorial",
+            heading="Direct Video Upload",
+            items_or_markdown="# Steps\n1. Select MP4 or MOV\n2. Stream to disk"
+        )
+    )
+
+    monkeypatch.setattr(process_reel, "analyze_with_gemini", lambda *args, **kwargs: mock_ai_card)
+
+    # Run the upload processing worker
+    server.run_upload_processing_job(job_id, reel_id, expected_video_path, None, "my_cool_clip.mp4")
+
+    job = db.get_job(job_id)
+    assert job["status"] == "done"
+
+    reel = db.get_reel_by_id(reel_id)
+    assert reel is not None
+    assert reel["title"] == "Direct Uploaded Video Tutorial"
+    assert reel["source"] == "upload"
+    assert reel["media"]["source"] == "upload"
+    assert reel["status"] == "unread"
+
+    # Verify proxy_video streams the uploaded video
+    r_stream = client.get(f"/api/proxy/video/{reel_id}")
+    assert r_stream.status_code in (200, 206)
+    assert "video/mp4" in r_stream.headers.get("Content-Type", "")
+
+    # Verify delete_reel removes reel and file from disk
+    r_del = client.delete(f"/api/reels/{reel_id}")
+    assert r_del.status_code == 200
+    assert r_del.json()["status"] == "deleted"
+
+    assert db.get_reel_by_id(reel_id) is None
+    assert not os.path.exists(expected_video_path)
+
+def test_upload_valid_mov_accepted_and_deleted(monkeypatch):
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    client.post("/api/login", json={"passcode": "test_custom_passcode_2026"})
+
+    files = {"file": ("iphone_recording.mov", VALID_MOV_HEADER + b"\x00" * 32, "video/quicktime")}
+    r = client.post("/api/reels/upload", files=files)
+    assert r.status_code == 202
+    data = r.json()
+    reel_id = data["reel_id"]
+
+    mov_path = os.path.join(db.get_videos_dir(), f"{reel_id}.mov")
+    assert os.path.exists(mov_path)
+
+    # Stream should return video/quicktime
+    r_stream = client.get(f"/api/proxy/video/{reel_id}")
+    assert r_stream.status_code in (200, 206)
+    assert "video/quicktime" in r_stream.headers.get("Content-Type", "")
+
+    # Delete should clean up the .mov file
+    r_del = client.delete(f"/api/reels/{reel_id}")
+    assert r_del.status_code == 200
+    assert not os.path.exists(mov_path)

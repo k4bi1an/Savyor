@@ -220,6 +220,7 @@ def process_and_save_reel(url: str, progress_callback: Optional[Callable[[str], 
     
     # 1. Download
     media_info = download_reel(normalized_url, shortcode, progress_callback)
+    media_info["source"] = "instagram"
     
     # 2. Analyze with Gemini
     ai_card = analyze_with_gemini(media_info, progress_callback)
@@ -228,6 +229,7 @@ def process_and_save_reel(url: str, progress_callback: Optional[Callable[[str], 
     card_dict = ai_card.model_dump()
     card_dict["id"] = shortcode
     card_dict["media"] = media_info
+    card_dict["source"] = "instagram"
 
     # 4. Resolve Category ID
     categories = db.get_categories()
@@ -243,3 +245,44 @@ def process_and_save_reel(url: str, progress_callback: Optional[Callable[[str], 
         progress_callback("Successfully saved to Savyor!")
         
     return db.get_reel_by_id(shortcode) or card_dict
+
+def process_and_save_upload(
+    upload_id: str,
+    video_path: str,
+    thumb_path: Optional[str] = None,
+    original_filename: str = "",
+    progress_callback: Optional[Callable[[str], None]] = None
+) -> Dict[str, Any]:
+    """End-to-end processing for uploaded video: Gemini analysis and database storage."""
+    media_info = {
+        "id": upload_id,
+        "uploader": "Direct Upload",
+        "channel": "upload",
+        "description": f"Uploaded video: {original_filename}" if original_filename else "Direct video upload",
+        "thumbnail": "",
+        "local_video_path": video_path,
+        "local_thumb_path": thumb_path or "",
+        "direct_video_url": "",
+        "webpage_url": "",
+        "source": "upload"
+    }
+
+    ai_card = analyze_with_gemini(media_info, progress_callback)
+
+    card_dict = ai_card.model_dump()
+    card_dict["id"] = upload_id
+    card_dict["media"] = media_info
+    card_dict["source"] = "upload"
+
+    categories = db.get_categories()
+    cat_match = next((c for c in categories if c["name"].lower() == ai_card.category.lower()), None)
+    card_dict["category_id"] = cat_match["id"] if cat_match else "other"
+    card_dict["suggested_new_category"] = ai_card.suggested_new_category
+    card_dict["status"] = "unread"
+
+    db.save_reel(card_dict)
+
+    if progress_callback:
+        progress_callback("Successfully saved to Savyor!")
+
+    return db.get_reel_by_id(upload_id) or card_dict
