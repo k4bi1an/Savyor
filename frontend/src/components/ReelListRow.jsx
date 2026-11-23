@@ -52,9 +52,14 @@ export default function ReelListRow({
   const creator = media.channel || media.uploader || 'instagram';
   const status = reel.status || 'unread';
 
+  const activeToken = typeof window !== 'undefined' ? (localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token') || '') : '';
+  const proxyThumb = media.proxy_thumb_url
+    ? `${media.proxy_thumb_url}${activeToken ? `${media.proxy_thumb_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(activeToken)}` : ''}`
+    : '';
+
   const thumbSrc = imgError
     ? (media.thumbnail || '')
-    : (media.proxy_thumb_url || media.thumbnail || '');
+    : (proxyThumb || media.thumbnail || '');
 
   const savedDate = reel.created_at
     ? new Date(reel.created_at).toLocaleDateString('en-US', {

@@ -31,6 +31,14 @@ export default function ReelDetailView({
   const creator = media.channel || media.uploader || 'instagram';
   const status = reel.status || 'unread';
 
+  const activeToken = typeof window !== 'undefined' ? (localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token') || '') : '';
+  const videoSrc = media.stream_url
+    ? (activeToken ? `${media.stream_url}${media.stream_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(activeToken)}` : media.stream_url)
+    : (media.direct_video_url || '');
+  const posterSrc = media.proxy_thumb_url
+    ? (activeToken ? `${media.proxy_thumb_url}${media.proxy_thumb_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(activeToken)}` : media.proxy_thumb_url)
+    : (media.thumbnail || '');
+
   // Format creation date
   const savedDate = reel.created_at
     ? new Date(reel.created_at).toLocaleDateString('en-US', {
@@ -129,8 +137,8 @@ ${reel.structured_content?.items_or_markdown || ''}
         {/* Left: Sticky 340px Video Player */}
         <div className="w-full lg:w-[340px] shrink-0 lg:sticky lg:top-20">
           <VideoPlayer
-            src={media.stream_url || media.direct_video_url}
-            poster={media.proxy_thumb_url || media.thumbnail}
+            src={videoSrc}
+            poster={posterSrc}
           />
         </div>
 

@@ -15,9 +15,8 @@ const STATUS_FILTERS = ['All', 'Unread', 'Reviewed', 'Tried', 'Archived'];
 const ITEMS_PER_PAGE = 50;
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return Boolean(localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token'));
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const [allReels, setAllReels] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -164,11 +163,58 @@ export default function App() {
     }
   }, [apiFetch]);
 
-  // Initial load
+  // Check and establish authentic session on app mount
   useEffect(() => {
-    fetchCategories();
-    fetchAllReels();
-  }, [fetchCategories, fetchAllReels]);
+    let isMounted = true;
+    fetch('/api/auth/status', { credentials: 'include' })
+      .then((res) => res.json())
+      .then(async (data) => {
+        if (!isMounted) return;
+        if (!data.auth_required) {
+          setIsAuthenticated(true);
+        } else if (data.is_authenticated) {
+          setIsAuthenticated(true);
+        } else {
+          // If server requires auth and cookie is missing, check if localStorage has passcode
+          const storedToken = localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token');
+          if (storedToken) {
+            try {
+              const loginRes = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ passcode: storedToken }),
+              });
+              if (loginRes.ok) {
+                if (isMounted) setIsAuthenticated(true);
+                return;
+              }
+            } catch (_) {}
+            localStorage.removeItem('savyor_passcode');
+            localStorage.removeItem('reelvault_token');
+          }
+          if (isMounted) setIsAuthenticated(false);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setIsAuthenticated(false);
+      })
+      .finally(() => {
+        if (isMounted) setAuthChecked(true);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Initial load once authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchCategories();
+      fetchAllReels();
+    }
+  }, [isAuthenticated, fetchCategories, fetchAllReels]);
 
   // Handle URL share targets (GET /?url=... or /?text=...)
   useEffect(() => {
@@ -579,6 +625,15 @@ export default function App() {
       return <PasscodeScreen onUnlock={handleUnlock} />;
     }
     return <BrandPreviewPage onBack={navigateHome} />;
+  }
+
+  // Wait for initial auth check
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-[#FAFAF8] flex items-center justify-center">
+        <Loader2 size={24} className="animate-spin text-[#2F5D50]" />
+      </div>
+    );
   }
 
   // Passcode Lock Screen

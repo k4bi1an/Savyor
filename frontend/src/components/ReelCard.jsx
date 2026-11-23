@@ -4,11 +4,15 @@ import { Bookmark, Play } from 'lucide-react';
 export default function ReelCard({ reel, onClick, isFocused = false }) {
   const [imgError, setImgError] = useState(false);
   const media = reel.media || {};
-  
+  const activeToken = typeof window !== 'undefined' ? (localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token') || '') : '';
+  const proxyThumb = media.proxy_thumb_url
+    ? `${media.proxy_thumb_url}${activeToken ? `${media.proxy_thumb_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(activeToken)}` : ''}`
+    : '';
+
   // Prefer local proxy thumbnail to avoid adblocker & Instagram hotlink blocks
   const thumbSrc = imgError 
     ? (media.thumbnail || '') 
-    : (media.proxy_thumb_url || media.thumbnail || '');
+    : (proxyThumb || media.thumbnail || '');
 
   const creator = media.channel || media.uploader || 'instagram';
   const status = reel.status || 'unread';
