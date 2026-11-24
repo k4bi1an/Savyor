@@ -245,7 +245,7 @@ export default function App() {
               fetchCategories();
               setTimeout(() => {
                 setJobs((prev) => prev.filter((j) => j.id !== job.id));
-              }, 1200);
+              }, 800);
             }
           }
         } catch (err) {
@@ -263,10 +263,34 @@ export default function App() {
     if (doneJobs.length > 0) {
       const timer = setTimeout(() => {
         setJobs((prev) => prev.filter((j) => j.status !== 'done'));
-      }, 1500);
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [jobs]);
+
+  // Reprocess a reel
+  const handleReprocessReel = async (reelId) => {
+    try {
+      const res = await apiFetch(`/api/reels/${reelId}/reprocess`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setJobs((prev) => [
+          ...prev.filter((j) => j.id !== data.job_id),
+          {
+            id: data.job_id,
+            url: `reprocess://${reelId}`,
+            status: 'queued',
+            progress: 'Queued for reprocessing...',
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      }
+    } catch (err) {
+      console.error('Failed to trigger reprocess:', err);
+    }
+  };
 
   // Queue a new reel
   const handleSaveReel = async (url) => {
@@ -719,6 +743,7 @@ export default function App() {
             onUpdateTags={handleUpdateTags}
             onAcceptSuggestedCategory={handleAcceptSuggestedCategory}
             onDismissSuggestedCategory={handleDismissSuggestedCategory}
+            onReprocess={handleReprocessReel}
             categories={categories}
             autoMarkReviewed={autoMarkReviewed}
           />
@@ -972,6 +997,8 @@ export default function App() {
                         );
                       }
 
+                      const isDone = job.status === 'done';
+                      const isFailed = job.status === 'failed';
                       return (
                         <div
                           key={job.id}
@@ -979,9 +1006,13 @@ export default function App() {
                           style={{ aspectRatio: '9/16' }}
                         >
                           <div className="flex items-center justify-between text-xs text-[#6B6B6B]">
-                            <span className="capitalize">{job.status}...</span>
+                            <span className="capitalize">
+                              {isDone ? 'Completed' : isFailed ? 'Failed' : `${job.status}...`}
+                            </span>
                             <div className="flex items-center gap-1.5">
-                              <Loader2 size={13} className="animate-spin text-[#2F5D50]" />
+                              {!isDone && !isFailed && (
+                                <Loader2 size={13} className="animate-spin text-[#2F5D50]" />
+                              )}
                               <button
                                 onClick={() => handleDismissJob(job.id)}
                                 className="text-[#6B6B6B] hover:text-[#1A1A1A] p-0.5"
@@ -995,23 +1026,28 @@ export default function App() {
                           <div className="my-auto text-center px-2">
                             <img src="/logo-mark.svg" alt="Savyor" className="w-5 h-5 text-[#2F5D50] mx-auto mb-2 opacity-60" />
                             <p className="font-serif text-sm font-medium text-[#1A1A1A]">
-                              Extracting notes
+                              {isDone ? 'Notes ready' : isFailed ? 'Processing error' : 'Extracting notes'}
                             </p>
                             <p className="text-xs text-[#6B6B6B] mt-1 line-clamp-2">
-                              {job.progress || 'Processing video stream...'}
+                              {job.progress || (isDone ? 'Saved to vault!' : 'Processing video stream...')}
                             </p>
                           </div>
 
                           <div className="w-full bg-[#E8E6E1] h-1 rounded overflow-hidden">
                             <div
-                              className="bg-[#2F5D50] h-full transition-all duration-300"
+                              className={`h-full transition-all duration-300 ${
+                                isFailed ? 'bg-[#B3382C]' : 'bg-[#2F5D50]'
+                              }`}
                               style={{
-                                width:
-                                  job.status === 'downloading'
-                                    ? '45%'
-                                    : job.status === 'analyzing'
-                                    ? '85%'
-                                    : '20%',
+                                width: isDone
+                                  ? '100%'
+                                  : job.status === 'downloading'
+                                  ? '45%'
+                                  : job.status === 'analyzing'
+                                  ? '85%'
+                                  : isFailed
+                                  ? '100%'
+                                  : '20%',
                               }}
                             />
                           </div>
@@ -1045,6 +1081,7 @@ export default function App() {
                         onUpdateStatus={handleUpdateStatus}
                         onUpdateCategory={handleUpdateCategory}
                         onDelete={(id) => setDeleteConfirmId(id)}
+                        onReprocess={handleReprocessReel}
                       />
                     ))}
                   </div>
@@ -1130,6 +1167,8 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         autoMarkReviewed={autoMarkReviewed}
         onToggleAutoMarkReviewed={handleToggleAutoMarkReviewed}
+        reels={allReels}
+        onRefreshReels={fetchAllReels}
       />
 
       {/* Delete Confirmation Dialog */}

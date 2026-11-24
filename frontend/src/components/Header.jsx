@@ -137,12 +137,12 @@ export default function Header({
             </button>
 
             {/* Sort Dropdown */}
-            <div className="relative w-[62px] sm:w-auto">
+            <div className="relative w-[54px] sm:w-auto">
               <select
                 value={sort}
                 onChange={(e) => onSortChange(e.target.value)}
                 aria-label="Sort reels"
-                className="w-full min-h-[40px] sm:min-h-0 bg-[#FFFFFF] border border-[#E8E6E1] text-[#1A1A1A] text-[10px] sm:text-xs py-1.5 pl-1.5 sm:pl-2.5 pr-3.5 sm:pr-6 rounded-[8px] focus:outline-none focus:border-[#2F5D50] focus:ring-1 focus:ring-[#2F5D50] cursor-pointer appearance-none transition-colors truncate"
+                className="w-full h-10 sm:h-auto sm:min-h-0 bg-[#FFFFFF] border border-[#E8E6E1] text-[#1A1A1A] text-[10px] sm:text-xs py-1.5 pl-1 sm:pl-2.5 pr-3.5 sm:pr-6 rounded-[8px] focus:outline-none focus:border-[#2F5D50] focus:ring-1 focus:ring-[#2F5D50] cursor-pointer appearance-none transition-colors truncate"
               >
                 <option value="newest">Newest</option>
                 <option value="oldest">Oldest</option>
@@ -154,7 +154,7 @@ export default function Header({
 
             {/* View Toggle (Grid / List / Compact) */}
             <div
-              className="flex items-center border border-[#E8E6E1] rounded-[8px] p-0.5 bg-[#FFFFFF]"
+              className="flex items-center border border-[#E8E6E1] rounded-[8px] p-0.5 bg-[#FFFFFF] h-10 sm:h-auto"
               role="group"
               aria-label="View switcher"
             >
@@ -164,7 +164,7 @@ export default function Header({
                 title="Grid view (g)"
                 aria-label="Grid view"
                 aria-pressed={view === 'grid'}
-                className={`min-h-[40px] min-w-[36px] sm:min-w-0 sm:min-h-0 p-1 sm:p-1.5 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
+                className={`h-full sm:h-auto px-2 sm:px-2.5 py-1 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
                   view === 'grid'
                     ? 'bg-[#2F5D50] text-[#FAFAF8]'
                     : 'text-[#6B6B6B] hover:text-[#1A1A1A] hover:bg-[#FAFAF8]'
@@ -178,7 +178,7 @@ export default function Header({
                 title="List view (l)"
                 aria-label="List view"
                 aria-pressed={view === 'list'}
-                className={`min-h-[40px] min-w-[36px] sm:min-w-0 sm:min-h-0 p-1 sm:p-1.5 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
+                className={`h-full sm:h-auto px-2 sm:px-2.5 py-1 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
                   view === 'list'
                     ? 'bg-[#2F5D50] text-[#FAFAF8]'
                     : 'text-[#6B6B6B] hover:text-[#1A1A1A] hover:bg-[#FAFAF8]'
@@ -192,7 +192,7 @@ export default function Header({
                 title="Compact view (c)"
                 aria-label="Compact view"
                 aria-pressed={view === 'compact'}
-                className={`min-h-[40px] min-w-[36px] sm:min-w-0 sm:min-h-0 p-1 sm:p-1.5 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
+                className={`h-full sm:h-auto px-2 sm:px-2.5 py-1 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
                   view === 'compact'
                     ? 'bg-[#2F5D50] text-[#FAFAF8]'
                     : 'text-[#6B6B6B] hover:text-[#1A1A1A] hover:bg-[#FAFAF8]'
@@ -220,7 +220,7 @@ export default function Header({
             <button
               onClick={onOpenAdd}
               aria-label="Add reel"
-              className="min-h-[40px] sm:min-h-0 p-2 sm:px-3.5 sm:py-2 rounded-[8px] bg-[#2F5D50] hover:bg-[#254A40] text-[#FAFAF8] text-xs font-medium flex items-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F5D50]/30"
+              className="h-10 sm:h-auto p-2 sm:px-3.5 sm:py-2 rounded-[8px] bg-[#2F5D50] hover:bg-[#254A40] text-[#FAFAF8] text-xs font-medium flex items-center gap-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F5D50]/30"
             >
               <Plus size={14} />
               <span className="hidden sm:inline">Add reel</span>
@@ -232,22 +232,22 @@ export default function Header({
                 onClick={onOpenSettings}
                 title="Settings"
                 aria-label="Settings"
-                className="min-h-[40px] sm:min-h-0 w-10 sm:w-auto p-1 text-[#6B6B6B] hover:text-[#1A1A1A] flex items-center justify-center rounded-[8px] transition-colors focus:outline-none focus:ring-1 focus:ring-[#2F5D50]"
+                className="h-10 w-9 sm:w-auto p-1.5 text-[#6B6B6B] hover:text-[#1A1A1A] flex items-center justify-center rounded-[8px] transition-colors focus:outline-none focus:ring-1 focus:ring-[#2F5D50]"
               >
                 <Settings size={14} />
               </button>
             )}
 
-            {/* Lock Button (Icon + Label) */}
+            {/* Lock Button (Icon + Label on desktop, icon only on small mobile) */}
             {hasToken && (
               <button
                 onClick={onLockVault}
                 title="Lock vault"
                 aria-label="Lock vault"
-                className="min-h-[40px] sm:min-h-0 text-[#6B6B6B] hover:text-[#1A1A1A] text-[11px] sm:text-xs py-1.5 px-1.5 sm:px-2 rounded-[8px] font-normal transition-colors flex items-center gap-1 hover:bg-[#FAFAF8]"
+                className="h-10 text-[#6B6B6B] hover:text-[#1A1A1A] text-[11px] sm:text-xs py-1.5 px-2 rounded-[8px] font-normal transition-colors flex items-center gap-1 hover:bg-[#FAFAF8]"
               >
                 <Lock size={12} />
-                <span>Lock</span>
+                <span className="hidden sm:inline">Lock</span>
               </button>
             )}
           </div>

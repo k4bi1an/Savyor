@@ -1,5 +1,6 @@
 import os
 import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import tempfile
 import atexit
 import shutil
@@ -535,3 +536,384 @@ def test_server_refuses_to_start_unbound_without_passcode():
     assert res_local.returncode == 0
     assert "LOCALHOST_BOUND_OK" in res_local.stdout
     assert "WARNING: SAVYOR_PASSCODE is unset" in res_local.stdout or "WARNING: SAVYOR_PASSCODE is unset" in res_local.stderr
+
+
+# ==========================================
+# PART B TESTS: Phase 2 Smarter Notes
+# ==========================================
+
+def test_schema_version_and_migrations():
+    conn = db.get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT version, description FROM schema_version ORDER BY version ASC")
+    versions = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    assert len(versions) >= 4
+    v_nums = [v["version"] for v in versions]
+    assert 1 in v_nums
+    assert 2 in v_nums
+    assert 3 in v_nums
+    assert 4 in v_nums
+
+def test_note_types_and_template_fixtures():
+    # 1. Valid Recipe Fixture
+    recipe_card = process_reel.ReelKnowledgeCard(
+        title="Authentic Cacio e Pepe",
+        category="Food",
+        tags=["pasta", "recipe", "italian"],
+        summary="Classic 3-ingredient Roman pasta dish.",
+        transcript="Boil pasta in salted water. Grate pecorino cheese and toast black pepper.",
+        key_takeaways=["Do not add cream or butter", "Use starchy pasta water to emulsify"],
+        extracted_resources=[],
+        structured_content=process_reel.StructuredContent(type="recipe", heading="Recipe", items_or_markdown="Detailed steps"),
+        note_type="recipe",
+        recipe_data=process_reel.RecipeData(
+            servings="2",
+            prep_or_cook_time="15 mins",
+            ingredients=[
+                process_reel.RecipeIngredient(name="Spaghetti", quantity="200g"),
+                process_reel.RecipeIngredient(name="Pecorino Romano", quantity="100g")
+            ],
+            steps=["Boil spaghetti al dente.", "Mix cheese with pasta water into cream.", "Toss together."]
+        ),
+        key_moments=[
+            process_reel.KeyMoment(time=10.5, label="Emulsifying cheese"),
+            process_reel.KeyMoment(time=2.0, label="Toasting pepper")  # unsorted
+        ],
+        timestamped_transcript=[
+            process_reel.TimestampSegment(start=10.0, end=15.0, text="Stir vigorously until creamy."),
+            process_reel.TimestampSegment(start=0.0, end=5.0, text="First toast your fresh pepper.")  # unsorted
+        ]
+    )
+
+    validated_recipe = process_reel.normalize_and_validate_ai_output(recipe_card, max_duration=60)
+    assert validated_recipe["note_type"] == "recipe"
+    assert validated_recipe["type_data"]["servings"] == "2"
+    assert len(validated_recipe["type_data"]["ingredients"]) == 2
+    # Key moments must be sorted
+    assert validated_recipe["key_moments"][0]["time"] == 2.0
+    assert validated_recipe["key_moments"][1]["time"] == 10.5
+    # Transcript segments must be sorted
+    assert validated_recipe["timestamped_transcript"][0]["start"] == 0.0
+
+    # 2. Malformed Note Type Fixture: Unknown note_type should degrade to 'general'
+    bad_card = process_reel.ReelKnowledgeCard(
+        title="Unknown Type Reel",
+        category="Other",
+        tags=["misc"],
+        summary="Some random reel",
+        transcript="Some spoken words",
+        key_takeaways=["Point 1"],
+        extracted_resources=[],
+        structured_content=process_reel.StructuredContent(type="analysis", heading="Analysis", items_or_markdown="Notes"),
+        note_type="astrology_reading_nonexistent",
+        key_moments=[
+            process_reel.KeyMoment(time=-5.0, label="Negative timestamp"),  # negative
+            process_reel.KeyMoment(time=500.0, label="Out of range timestamp")  # exceeds duration
+        ]
+    )
+    validated_bad = process_reel.normalize_and_validate_ai_output(bad_card, max_duration=30)
+    assert validated_bad["note_type"] == "general"
+    # Negative moment dropped, out of bounds moment clamped to max_duration (30)
+    assert len(validated_bad["key_moments"]) == 1
+    assert validated_bad["key_moments"][0]["time"] == 30.0
+
+def test_reprocess_reel_preserves_user_edits():
+    # Seed reel
+    reel_id = "reprocess_test_reel_1"
+    initial_card = {
+        "id": reel_id,
+        "title": "Initial AI Title",
+        "category": "Tech & Code",
+        "category_id": "tech-code",
+        "tags": ["initial_tag"],
+        "summary": "Initial summary",
+        "transcript": "Initial transcript",
+        "key_takeaways": ["Initial takeaway"],
+        "extracted_resources": [],
+        "structured_content": {"heading": "Initial", "items_or_markdown": "Initial notes"},
+        "status": "unread",
+        "analysis_version": 1,
+        "media": {"id": reel_id, "local_video_path": "media/videos/test.mp4"}
+    }
+    db.save_reel(initial_card)
+
+    # Simulate user manual edits: changed category, customized tags, marked as 'tried'
+    db.update_reel(reel_id, {
+        "category_id": "health-fitness",
+        "tags": ["user_custom_tag", "edited_tag"],
+        "status": "tried"
+    })
+
+    user_edited_reel = db.get_reel_by_id(reel_id)
+    assert user_edited_reel["category_id"] == "health-fitness"
+    assert user_edited_reel["tags"] == ["user_custom_tag", "edited_tag"]
+    assert user_edited_reel["status"] == "tried"
+
+    # Simulate AI reprocessing data
+    new_ai_data = {
+        "title": "New High Fidelity AI Title",
+        "summary": "New AI summary extracted with deeper analysis.",
+        "transcript": "Full word-for-word audio transcription.",
+        "key_takeaways": ["New AI Takeaway 1", "New AI Takeaway 2"],
+        "extracted_resources": [{"name": "Python", "type": "tool", "url": "https://python.org", "description": "Programming language"}],
+        "structured_content": {"heading": "Code Deep Dive", "items_or_markdown": "```python\nprint('hello')\n```"},
+        "note_type": "tutorial",
+        "type_data": {
+            "prerequisites": ["Python 3.11"],
+            "steps": [{"step_number": 1, "description": "Run script", "code_snippet": "python app.py", "language": "bash"}],
+            "result": "Clean execution"
+        },
+        "key_moments": [{"time": 5.0, "label": "Code explanation"}],
+        "timestamped_transcript": [{"start": 0.0, "end": 5.0, "text": "Welcome to python."}]
+    }
+
+    reprocessed = db.reprocess_reel_data(reel_id, new_ai_data, model_used="gemini-2.5-flash")
+
+    # Verify AI-generated fields were updated
+    assert reprocessed["title"] == "New High Fidelity AI Title"
+    assert reprocessed["summary"] == "New AI summary extracted with deeper analysis."
+    assert reprocessed["note_type"] == "tutorial"
+    assert reprocessed["type_data"]["result"] == "Clean execution"
+    assert reprocessed["analysis_version"] == 2
+    assert reprocessed["model_used"] == "gemini-2.5-flash"
+    assert reprocessed["processed_at"] is not None
+
+    # CRITICAL: Confirm user manual edits were NOT overwritten!
+    assert reprocessed["category_id"] == "health-fitness"
+    assert reprocessed["tags"] == ["user_custom_tag", "edited_tag"]
+    assert reprocessed["status"] == "tried"
+
+def test_link_verification_and_ssrf_protection():
+    import link_verifier
+
+    # 1. SSRF IP checks
+    assert link_verifier.is_safe_ip("127.0.0.1") is False
+    assert link_verifier.is_safe_ip("10.0.0.1") is False
+    assert link_verifier.is_safe_ip("172.16.0.1") is False
+    assert link_verifier.is_safe_ip("192.168.1.1") is False
+    assert link_verifier.is_safe_ip("169.254.169.254") is False
+    assert link_verifier.is_safe_ip("8.8.8.8") is True
+    assert link_verifier.is_safe_ip("1.1.1.1") is True
+
+    # 2. Hostname safety
+    assert link_verifier.is_safe_host("localhost") is False
+    assert link_verifier.is_safe_host("127.0.0.1") is False
+
+    # 3. verify_single_url SSRF block
+    blocked_res = link_verifier.verify_single_url("http://127.0.0.1:8000/admin")
+    assert blocked_res["link_status"] == "unreachable"
+
+    # 4. verify_single_url invalid protocol block
+    file_proto = link_verifier.verify_single_url("file:///etc/passwd")
+    assert file_proto["link_status"] == "unreachable"
+
+    # 5. verify_reel_resources batch helper
+    test_resources = [
+        {"name": "Localhost Attack", "type": "tool", "url": "http://localhost:5000/env", "description": "SSRF test"},
+        {"name": "No URL Tool", "type": "tool", "url": "", "description": "Tool without link"}
+    ]
+    verified = link_verifier.verify_reel_resources(test_resources)
+    assert verified[0]["link_status"] == "unreachable"
+    assert verified[1]["link_status"] == "unverified"
+
+def test_fts5_search_ranking_and_snippets():
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+    client.post("/api/login", json={"passcode": "test_custom_passcode_2026"})
+
+    # Seed 3 distinct reels in test database for FTS search testing
+    r_pasta = {
+        "id": "fts_pasta_reel",
+        "title": "Creamy Authentic Carbonara",
+        "category": "Food",
+        "category_id": "food",
+        "tags": ["carbonara", "pasta", "pecorino"],
+        "summary": "The authentic Roman way to cook carbonara.",
+        "transcript": "Never add cream. Whisk pecorino with pasta water.",
+        "key_takeaways": ["Pecorino Romano", "Guanciale"],
+        "extracted_resources": [],
+        "structured_content": {},
+        "status": "unread",
+        "media": {"id": "fts_pasta_reel"}
+    }
+
+    r_cafe = {
+        "id": "fts_cafe_reel",
+        "title": "Best Café in Paris",
+        "category": "Creative",
+        "category_id": "creative",
+        "tags": ["café", "coffee", "paris"],
+        "summary": "Exploring the historic café culture of Saint-Germain.",
+        "transcript": "Fresh espresso and croissants.",
+        "key_takeaways": ["Espresso", "Croissant"],
+        "extracted_resources": [],
+        "structured_content": {},
+        "status": "unread",
+        "media": {"id": "fts_cafe_reel"}
+    }
+
+    r_tamil = {
+        "id": "fts_tamil_reel",
+        "title": "தமிழ் சமையல் குறிப்புகள்",
+        "category": "Food",
+        "category_id": "food",
+        "tags": ["tamil", "sambar"],
+        "summary": "சுவையான சாம்பார் தயாரிப்பது எப்படி.",
+        "transcript": "பருப்பு மற்றும் காய்கறிகள் சேர்த்து கொதிக்க வைக்கவும்.",
+        "key_takeaways": ["சாம்பார் பொடி"],
+        "extracted_resources": [],
+        "structured_content": {},
+        "status": "unread",
+        "media": {"id": "fts_tamil_reel"}
+    }
+
+    db.save_reel(r_pasta)
+    db.save_reel(r_cafe)
+    db.save_reel(r_tamil)
+
+    # 1. Search with title prefix match
+    res_pasta = client.get("/api/reels?search=carbonara")
+    assert res_pasta.status_code == 200
+    data_pasta = res_pasta.json()
+    assert any(r["id"] == "fts_pasta_reel" for r in data_pasta)
+    matched_pasta = next(r for r in data_pasta if r["id"] == "fts_pasta_reel")
+    assert matched_pasta["search_snippet"] is not None
+    assert "<mark" in matched_pasta["search_snippet"]["html"]
+
+    # 2. Diacritics matching: 'cafe' matches 'Café'
+    res_cafe = client.get("/api/reels?search=cafe")
+    assert res_cafe.status_code == 200
+    data_cafe = res_cafe.json()
+    assert any(r["id"] == "fts_cafe_reel" for r in data_cafe)
+
+    # 3. Unicode multi-lingual search (Tamil)
+    res_tamil = client.get("/api/reels?search=தமிழ்")
+    assert res_tamil.status_code == 200
+    data_tamil = res_tamil.json()
+    assert any(r["id"] == "fts_tamil_reel" for r in data_tamil)
+
+    # 4. Combined with category filter
+    res_filtered = client.get("/api/reels?search=carbonara&category=Food")
+    assert res_filtered.status_code == 200
+    assert any(r["id"] == "fts_pasta_reel" for r in res_filtered.json())
+
+    res_empty = client.get("/api/reels?search=carbonara&category=Tech%20%26%20Code")
+    assert res_empty.status_code == 200
+    assert not any(r["id"] == "fts_pasta_reel" for r in res_empty.json())
+
+def test_fts5_5000_reels_performance():
+    import time
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+    CREATE VIRTUAL TABLE reels_fts USING fts5(
+        reel_id UNINDEXED, title, summary, note_text, transcript, caption, tags, creator, category_name,
+        tokenize='unicode61 remove_diacritics 2'
+    )
+    """)
+
+    sample_words = ["python", "machine", "learning", "react", "fastapi", "docker", "recipe", "pasta", "workout", "fitness"]
+    batch = []
+    for i in range(5000):
+        w1 = sample_words[i % len(sample_words)]
+        w2 = sample_words[(i * 3) % len(sample_words)]
+        batch.append((
+            f"r_{i}",
+            f"Title {i} {w1}",
+            f"Summary {i} covering {w2}",
+            f"Notes text {w1} {w2}",
+            f"Transcript speech {w2}",
+            "",
+            f"tag_{w1} tag_{w2}",
+            f"@creator_{i % 100}",
+            "Tech"
+        ))
+    conn.executemany("INSERT INTO reels_fts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", batch)
+    conn.commit()
+
+    # Measure search latency
+    queries = ['"python"*', '"react"* "fastapi"*', '"machine"* "learning"*', '"unknown_word"*']
+    latencies = []
+    for q in queries:
+        t0 = time.perf_counter()
+        cur = conn.execute("""
+        SELECT reel_id,
+               bm25(reels_fts, 5.0, 2.0, 1.5, 1.0, 1.0, 4.0, 1.5, 1.5) as rank,
+               snippet(reels_fts, 1, '<b>', '</b>', '...', 10) as s_title
+        FROM reels_fts
+        WHERE reels_fts MATCH ?
+        ORDER BY rank ASC
+        LIMIT 30
+        """, (q,))
+        res = cur.fetchall()
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        latencies.append(elapsed_ms)
+
+    avg_ms = sum(latencies) / len(latencies)
+    conn.close()
+    assert avg_ms < 50.0, f"FTS search with 5,000 reels took {avg_ms:.2f}ms, which exceeds 50ms target!"
+
+def test_in_app_backup_and_markdown_export():
+    from fastapi.testclient import TestClient
+    import zipfile
+    import io
+
+    client = TestClient(server.app)
+    client.post("/api/login", json={"passcode": "test_custom_passcode_2026"})
+
+    # 1. Download Backup
+    r_backup = client.get("/api/backup/download")
+    assert r_backup.status_code == 200
+    assert r_backup.headers.get("content-type") == "application/zip"
+    assert "attachment; filename=\"savyor_backup_" in r_backup.headers.get("content-disposition", "")
+
+    zf_backup = zipfile.ZipFile(io.BytesIO(r_backup.content))
+    namelist = zf_backup.namelist()
+    assert "reels.db" in namelist
+    assert "metadata.json" in namelist
+
+    # 2. Export Markdown Notes
+    r_export = client.get("/api/export/markdown")
+    assert r_export.status_code == 200
+    assert r_export.headers.get("content-type") == "application/zip"
+    assert "attachment; filename=\"savyor_notes_" in r_export.headers.get("content-disposition", "")
+
+    zf_export = zipfile.ZipFile(io.BytesIO(r_export.content))
+    export_names = zf_export.namelist()
+    assert "index.md" in export_names
+
+    # Check a markdown note contains YAML frontmatter and structured headers
+    md_files = [f for f in export_names if f.endswith(".md") and f != "index.md"]
+    if md_files:
+        sample_md = zf_export.read(md_files[0]).decode("utf-8")
+        assert sample_md.startswith("---")
+        assert "title:" in sample_md
+        assert "category:" in sample_md
+        assert "note_type:" in sample_md
+        assert "## Key Takeaways" in sample_md
+
+    # 3. Restore Backup from valid ZIP
+    r_restore = client.post(
+        "/api/backup/restore",
+        files={"file": ("backup.zip", r_backup.content, "application/zip")}
+    )
+    assert r_restore.status_code == 200
+    assert r_restore.json()["status"] == "ok"
+
+    # 4. Restore Rejects Path Traversal
+    bad_zip_buf = io.BytesIO()
+    with zipfile.ZipFile(bad_zip_buf, "w") as z_bad:
+        z_bad.writestr("../etc/passwd", "evil content")
+        z_bad.writestr("reels.db", b"SQLite format 3\x00" + b"\x00" * 96)
+    bad_zip_buf.seek(0)
+
+    r_bad_restore = client.post(
+        "/api/backup/restore",
+        files={"file": ("bad_backup.zip", bad_zip_buf.getvalue(), "application/zip")}
+    )
+    assert r_bad_restore.status_code == 400
+    assert "Malicious or illegal entry" in r_bad_restore.json()["detail"]

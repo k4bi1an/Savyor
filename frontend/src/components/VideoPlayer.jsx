@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Pause, Volume2, VolumeX, Repeat, AlertCircle, Loader2 } from 'lucide-react';
 
-export default function VideoPlayer({ src, poster }) {
+export default function VideoPlayer({ src, poster, onTimeUpdate, seekTo }) {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -15,6 +15,14 @@ export default function VideoPlayer({ src, poster }) {
   const [hasError, setHasError] = useState(false);
   const controlsTimeoutRef = useRef(null);
 
+  // Handle external seek requests
+  useEffect(() => {
+    if (seekTo && typeof seekTo.time === 'number' && videoRef.current) {
+      videoRef.current.currentTime = Math.max(0, seekTo.time);
+      videoRef.current.play().catch(() => {});
+    }
+  }, [seekTo]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -22,7 +30,10 @@ export default function VideoPlayer({ src, poster }) {
     setIsLoading(false);
     setHasError(false);
 
-    const handleTimeUpdate = () => setCurrentTime(video.currentTime);
+    const handleTimeUpdate = () => {
+      setCurrentTime(video.currentTime);
+      if (onTimeUpdate) onTimeUpdate(video.currentTime);
+    };
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
       setIsLoading(false);

@@ -12,6 +12,11 @@ from collections import defaultdict
 import requests
 import shutil
 import subprocess
+import zipfile
+import tempfile
+import io
+import json
+import sqlite3
 from fastapi import FastAPI, HTTPException, Request, Response, BackgroundTasks, Depends, Header, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +26,7 @@ from dotenv import load_dotenv
 
 import db
 import process_reel
+import link_verifier
 
 load_dotenv()
 
@@ -409,6 +415,19 @@ def run_upload_processing_job(job_id: str, upload_id: str, video_path: str, thum
         print(f"Upload job {job_id} failed: {error_msg}")
         db.update_job(job_id, status="failed", progress="Failed to process uploaded video", error=error_msg)
 
+def run_reprocess_processing_job(job_id: str, reel_id: str):
+    def update_progress(msg: str):
+        db.update_job(job_id, status="analyzing", progress=msg)
+
+    try:
+        db.update_job(job_id, status="analyzing", progress="Queued for reprocessing...", reel_id=reel_id)
+        updated = process_reel.reprocess_existing_reel(reel_id, progress_callback=update_progress)
+        db.update_job(job_id, status="done", progress="Reprocessing complete!", reel_id=reel_id)
+    except Exception as e:
+        error_msg = str(e)
+        print(f"Reprocess job {job_id} failed: {error_msg}")
+        db.update_job(job_id, status="failed", progress="Failed to reprocess reel", error=error_msg)
+
 MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
 
 @app.post("/api/reels/upload", status_code=202)
@@ -643,6 +662,364 @@ def remove_reel(reel_id: str, auth: str = Depends(require_auth)):
             except Exception:
                 pass
     return {"status": "deleted", "id": reel_id}
+
+# Reprocess & Link Verification Endpoints
+@app.post("/api/reels/{reel_id}/reprocess", status_code=202)
+def reprocess_single_reel(reel_id: str, background_tasks: BackgroundTasks, auth: str = Depends(require_auth)):
+    existing = db.get_reel_by_id(reel_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Reel not found")
+
+    job_id = f"reprocess_{uuid.uuid4().hex[:10]}"
+    db.create_job(job_id, url=f"reprocess://{reel_id}")
+    db.update_job(job_id, status="queued", progress="Queued for reprocessing...", reel_id=reel_id)
+    background_tasks.add_task(run_reprocess_processing_job, job_id, reel_id)
+    return {"job_id": job_id, "status": "queued", "reel_id": reel_id}
+
+@app.post("/api/reels/{reel_id}/verify-links")
+def recheck_reel_links(reel_id: str, auth: str = Depends(require_auth)):
+    existing = db.get_reel_by_id(reel_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Reel not found")
+    resources = existing.get("extracted_resources", [])
+    verified = link_verifier.verify_reel_resources(resources)
+    db.update_reel(reel_id, {"extracted_resources": verified})
+    return {"status": "ok", "extracted_resources": verified}
+
+# Backup & Export Endpoints
+@app.get("/api/backup/download")
+def download_backup_zip(auth: str = Depends(require_auth)):
+    """Downloads a complete zip archive of SQLite backup + media folder."""
+    db_path = db.get_db_path()
+    videos_dir = db.get_videos_dir()
+    thumbs_dir = db.get_thumbs_dir()
+
+    mem_zip = io.BytesIO()
+    with zipfile.ZipFile(mem_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # 1. Consistent SQLite backup using backup API
+        temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".db")
+        os.close(temp_db_fd)
+        try:
+            src_conn = sqlite3.connect(db_path)
+            dest_conn = sqlite3.connect(temp_db_path)
+            with dest_conn:
+                src_conn.backup(dest_conn)
+            src_conn.close()
+            dest_conn.close()
+            zf.write(temp_db_path, arcname="reels.db")
+        finally:
+            if os.path.exists(temp_db_path):
+                try:
+                    os.remove(temp_db_path)
+                except Exception:
+                    pass
+
+        # 2. Add media files
+        if os.path.exists(videos_dir):
+            for root, _, files in os.walk(videos_dir):
+                for f in files:
+                    full_p = os.path.join(root, f)
+                    rel_p = os.path.relpath(full_p, os.path.dirname(videos_dir))
+                    zf.write(full_p, arcname=f"media/{rel_p}")
+        if os.path.exists(thumbs_dir):
+            for root, _, files in os.walk(thumbs_dir):
+                for f in files:
+                    full_p = os.path.join(root, f)
+                    rel_p = os.path.relpath(full_p, os.path.dirname(thumbs_dir))
+                    zf.write(full_p, arcname=f"media/{rel_p}")
+
+        # 3. Metadata
+        categories = db.get_categories()
+        reels_list = db.get_reels(status="all")
+        meta = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "reel_count": len(reels_list),
+            "category_count": len(categories),
+            "version": "2.0"
+        }
+        zf.writestr("metadata.json", json.dumps(meta, indent=2))
+
+    mem_zip.seek(0)
+    now_str = datetime.now().strftime("%Y-%m-%d")
+    return StreamingResponse(
+        mem_zip,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="savyor_backup_{now_str}.zip"'}
+    )
+
+@app.post("/api/backup/restore")
+async def restore_backup_zip(file: UploadFile = File(...), auth: str = Depends(require_auth)):
+    """Restores application database and media from a uploaded backup zip."""
+    content = await file.read()
+    if len(content) < 100:
+        raise HTTPException(status_code=400, detail="Invalid zip file.")
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(content))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid zip archive.")
+
+    # Validate zip entries for path traversal and verify reels.db presence
+    namelist = zf.namelist()
+    has_db = False
+    for name in namelist:
+        if name.startswith("/") or name.startswith("\\") or ".." in name or ":" in name:
+            raise HTTPException(status_code=400, detail=f"Malicious or illegal entry in archive: {name}")
+        if name == "reels.db":
+            has_db = True
+
+    if not has_db:
+        raise HTTPException(status_code=400, detail="Archive does not contain a valid reels.db database file.")
+
+    # Verify db file signature
+    with zf.open("reels.db") as db_file:
+        header = db_file.read(16)
+        if not header.startswith(b"SQLite format 3\x00"):
+            raise HTTPException(status_code=400, detail="Corrupted database file in archive.")
+
+    # 1. Automatic safety backup of current state
+    import subprocess
+    try:
+        subprocess.run([sys.executable, "scripts/backup.py"], capture_output=True, check=False)
+    except Exception as e:
+        print(f"Safety backup before restore warning: {e}")
+
+    # 2. Restore database
+    target_db_path = db.get_db_path()
+    with open(target_db_path, "wb") as f_out:
+        f_out.write(zf.read("reels.db"))
+
+    # 3. Restore media files
+    videos_dir = db.get_videos_dir()
+    thumbs_dir = db.get_thumbs_dir()
+    os.makedirs(videos_dir, exist_ok=True)
+    os.makedirs(thumbs_dir, exist_ok=True)
+
+    restored_media_count = 0
+    for name in namelist:
+        if name.startswith("media/"):
+            rest_subpath = name[len("media/"):].lstrip("/\\")
+            if rest_subpath and not name.endswith("/"):
+                # Determine target directory
+                if "videos" in rest_subpath:
+                    dest_file = os.path.join(videos_dir, os.path.basename(rest_subpath))
+                elif "thumbs" in rest_subpath:
+                    dest_file = os.path.join(thumbs_dir, os.path.basename(rest_subpath))
+                else:
+                    dest_file = os.path.join("media", rest_subpath)
+                os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                with open(dest_file, "wb") as f_m:
+                    f_m.write(zf.read(name))
+                restored_media_count += 1
+
+    # Re-run db migrations
+    db.init_db()
+    reels_count = len(db.get_reels(status="all"))
+
+    return {
+        "status": "ok",
+        "message": f"Successfully restored {reels_count} reels and {restored_media_count} media files.",
+        "reel_count": reels_count
+    }
+
+def format_reel_markdown(r: Dict[str, Any]) -> str:
+    tags_formatted = json.dumps(r.get("tags", []))
+    lines = [
+        "---",
+        f'title: "{r.get("title", "")}"',
+        f'creator: "{r.get("media", {}).get("uploader", "")} (@{r.get("media", {}).get("channel", "")})"',
+        f'category: "{r.get("category", "")}"',
+        f'tags: {tags_formatted}',
+        f'status: "{r.get("status", "unread")}"',
+        f'source_url: "{r.get("media", {}).get("webpage_url", "")}"',
+        f'saved_date: "{r.get("created_at", "")}"',
+        f'note_type: "{r.get("note_type", "general")}"',
+        "---",
+        "",
+        f"# {r.get('title', 'Untitled')}",
+        "",
+        f"{r.get('summary', '')}",
+        "",
+        "## Key Takeaways",
+    ]
+    for kt in r.get("key_takeaways", []):
+        lines.append(f"- {kt}")
+    lines.append("")
+
+    nt = r.get("note_type", "general")
+    td = r.get("type_data", {})
+    if nt == "recipe" and td:
+        if td.get("servings"):
+            lines.append(f"**Servings:** {td.get('servings')}")
+        if td.get("prep_or_cook_time"):
+            lines.append(f"**Time:** {td.get('prep_or_cook_time')}")
+        if td.get("ingredients"):
+            lines.append("\n### Ingredients")
+            for ing in td.get("ingredients", []):
+                lines.append(f"- {ing.get('name')}: {ing.get('quantity')}")
+        if td.get("steps"):
+            lines.append("\n### Steps")
+            for idx, stp in enumerate(td.get("steps", []), 1):
+                lines.append(f"{idx}. {stp}")
+        lines.append("")
+    elif nt == "workout" and td:
+        if td.get("goal"):
+            lines.append(f"**Goal:** {td.get('goal')}")
+        if td.get("equipment"):
+            lines.append(f"**Equipment:** {', '.join(td.get('equipment', []))}")
+        if td.get("exercises"):
+            lines.append("\n### Exercises")
+            for ex in td.get("exercises", []):
+                details = []
+                if ex.get("sets"): details.append(f"{ex.get('sets')} sets")
+                if ex.get("reps_or_duration"): details.append(str(ex.get("reps_or_duration")))
+                det_str = f" ({', '.join(details)})" if details else ""
+                lines.append(f"- **{ex.get('name')}**{det_str}")
+                if ex.get("notes"):
+                    lines.append(f"  *{ex.get('notes')}*")
+        if td.get("cautions"):
+            lines.append("\n### Cautions")
+            for c in td.get("cautions", []):
+                lines.append(f"- {c}")
+        lines.append("")
+    elif nt == "tutorial" and td:
+        if td.get("prerequisites"):
+            lines.append("### Prerequisites")
+            for pr in td.get("prerequisites", []):
+                lines.append(f"- {pr}")
+        if td.get("steps"):
+            lines.append("\n### Tutorial Steps")
+            for stp in td.get("steps", []):
+                num = stp.get("step_number", 1)
+                lines.append(f"#### Step {num}: {stp.get('description')}")
+                if stp.get("code_snippet"):
+                    lang = stp.get("language") or ""
+                    lines.append(f"```{lang}\n{stp.get('code_snippet')}\n```")
+        if td.get("result"):
+            lines.append(f"\n**Result:** {td.get('result')}")
+        lines.append("")
+    elif nt == "tool_or_product" and td:
+        if td.get("what_it_does"):
+            lines.append(f"**What it does:** {td.get('what_it_does')}")
+        if td.get("price_if_stated"):
+            lines.append(f"**Pricing:** {td.get('price_if_stated')}")
+        if td.get("key_features"):
+            lines.append("\n### Key Features")
+            for kf in td.get("key_features", []):
+                lines.append(f"- {kf}")
+        if td.get("alternatives_mentioned"):
+            lines.append(f"\n**Alternatives:** {', '.join(td.get('alternatives_mentioned', []))}")
+        if td.get("link"):
+            lines.append(f"**Link:** {td.get('link')}")
+        lines.append("")
+    elif nt == "place" and td:
+        if td.get("location_as_stated"):
+            lines.append(f"**Location:** {td.get('location_as_stated')}")
+        if td.get("best_time"):
+            lines.append(f"**Best Time to Visit:** {td.get('best_time')}")
+        if td.get("what_to_do_or_eat"):
+            lines.append("\n### Highlights & Things To Do")
+            for hi in td.get("what_to_do_or_eat", []):
+                lines.append(f"- {hi}")
+        if td.get("tips"):
+            lines.append("\n### Tips")
+            for tip in td.get("tips", []):
+                lines.append(f"- {tip}")
+        lines.append("")
+    elif nt == "book_or_media" and td:
+        if td.get("creator"):
+            lines.append(f"**Creator/Author:** {td.get('creator')}")
+        if td.get("why_recommended"):
+            lines.append(f"\n**Why Recommended:** {td.get('why_recommended')}")
+        if td.get("where_to_find"):
+            lines.append(f"**Where to Find:** {td.get('where_to_find')}")
+        lines.append("")
+    elif nt == "advice" and td:
+        if td.get("main_claim"):
+            lines.append(f"**Core Principle:** {td.get('main_claim')}")
+        if td.get("supporting_points"):
+            lines.append("\n### Supporting Points")
+            for sp in td.get("supporting_points", []):
+                lines.append(f"- {sp}")
+        if td.get("caveats"):
+            lines.append("\n### Caveats")
+            for cav in td.get("caveats", []):
+                lines.append(f"- {cav}")
+        lines.append("")
+
+    sc = r.get("structured_content", {})
+    if sc and sc.get("items_or_markdown"):
+        lines.append(f"## {sc.get('heading', 'Details')}")
+        lines.append(sc.get("items_or_markdown", ""))
+        lines.append("")
+
+    km_list = r.get("key_moments", [])
+    if km_list:
+        lines.append("## Key Moments")
+        for km in km_list:
+            t_sec = int(km.get("time", 0))
+            m = t_sec // 60
+            s = t_sec % 60
+            lines.append(f"- [{m}:{s:02d}] {km.get('label')}")
+        lines.append("")
+
+    res_list = r.get("extracted_resources", [])
+    if res_list:
+        lines.append("## Links & Resources")
+        for res in res_list:
+            u = res.get("url") or res.get("final_url") or ""
+            link_part = f" - [{u}]({u})" if u else ""
+            status_part = f" ({res.get('link_status')})" if res.get("link_status") else ""
+            lines.append(f"- **{res.get('name')}** ({res.get('type')}){status_part}: {res.get('description')}{link_part}")
+        lines.append("")
+
+    tr = r.get("transcript", "")
+    if tr:
+        lines.append("## Transcript")
+        lines.append(tr)
+        lines.append("")
+
+    return "\n".join(lines)
+
+@app.get("/api/export/markdown")
+def export_notes_markdown(auth: str = Depends(require_auth)):
+    """Exports all saved notes as an organized zip of Markdown documents with YAML frontmatter."""
+    reels = db.get_reels(status="all")
+    mem_zip = io.BytesIO()
+
+    with zipfile.ZipFile(mem_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        index_lines = [
+            "# Savyor Notes Index",
+            "",
+            f"Exported on {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} — {len(reels)} total notes.",
+            "",
+            "| Title | Creator | Category | Note Type | Status | File |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- |",
+        ]
+
+        for r in reels:
+            rid = r["id"]
+            title = r.get("title", "Untitled").replace("|", "-")
+            creator = f"{r.get('media', {}).get('uploader', '')}".replace("|", "-")
+            category = r.get("category", "Other")
+            note_type = r.get("note_type", "general")
+            status = r.get("status", "unread")
+            filename = f"{rid}.md"
+
+            index_lines.append(f"| {title} | {creator} | {category} | {note_type} | {status} | [{filename}]({filename}) |")
+            md_content = format_reel_markdown(r)
+            zf.writestr(filename, md_content)
+
+        zf.writestr("index.md", "\n".join(index_lines))
+
+    mem_zip.seek(0)
+    now_str = datetime.now().strftime("%Y-%m-%d")
+    return StreamingResponse(
+        mem_zip,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="savyor_notes_{now_str}.zip"'}
+    )
+
 
 # Static Files & SPA Catch-all
 if os.path.exists("frontend/dist"):

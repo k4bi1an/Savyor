@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MoreHorizontal, ExternalLink, Trash2, CheckCircle2, Tag } from 'lucide-react';
+import { MoreHorizontal, ExternalLink, Trash2, CheckCircle2, Tag, RefreshCw } from 'lucide-react';
 
-export default function RowQuickActions({ reel, categories = [], onUpdateStatus, onUpdateCategory, onDelete }) {
+export default function RowQuickActions({ reel, categories = [], onUpdateStatus, onUpdateCategory, onDelete, onReprocess }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showStatusSubmenu, setShowStatusSubmenu] = useState(false);
   const [showCategorySubmenu, setShowCategorySubmenu] = useState(false);
@@ -85,6 +85,20 @@ export default function RowQuickActions({ reel, categories = [], onUpdateStatus,
       {/* Popover Menu */}
       {showMenu && (
         <div className="absolute right-0 top-10 sm:top-7 z-30 w-44 bg-[#FFFFFF] border border-[#E8E6E1] rounded-[8px] py-1 text-xs shadow-none">
+          {onReprocess && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowMenu(false);
+                onReprocess(reel.id);
+              }}
+              className="w-full min-h-[36px] flex items-center justify-between px-3 py-2 text-[#1A1A1A] hover:bg-[#FAFAF8] text-left transition-colors"
+            >
+              <span>Reprocess with AI</span>
+              <RefreshCw size={13} className="text-[#6B6B6B]" />
+            </button>
+          )}
+
           {onUpdateStatus && (
             <button
               type="button"

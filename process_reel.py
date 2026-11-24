@@ -2,23 +2,100 @@ import os
 import re
 import time
 import json
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List
 from pydantic import BaseModel, Field
 import yt_dlp
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+
 import db
+import link_verifier
 
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Schemas for Gemini Structured Output
+# ==========================================
+# Pydantic Schemas for Structured Note Types
+# ==========================================
+
+class RecipeIngredient(BaseModel):
+    name: str = Field(description="Name of ingredient")
+    quantity: str = Field(default="", description="Quantity and unit if mentioned, or empty string")
+
+class RecipeData(BaseModel):
+    servings: Optional[str] = Field(default=None, description="Number of servings if stated, else null")
+    prep_or_cook_time: Optional[str] = Field(default=None, description="Time required if stated, else null")
+    ingredients: List[RecipeIngredient] = Field(default_factory=list, description="Ingredients with name and quantity")
+    steps: List[str] = Field(default_factory=list, description="Step-by-step preparation and cooking instructions")
+
+class WorkoutExercise(BaseModel):
+    name: str = Field(description="Exercise name")
+    sets: Optional[str] = Field(default=None, description="Number of sets if stated")
+    reps_or_duration: Optional[str] = Field(default=None, description="Reps or time duration")
+    notes: Optional[str] = Field(default=None, description="Form tips, focus cues, or technique notes")
+
+class WorkoutData(BaseModel):
+    goal: Optional[str] = Field(default=None, description="Target muscle groups or workout goal")
+    equipment: List[str] = Field(default_factory=list, description="Equipment required or empty if bodyweight")
+    exercises: List[WorkoutExercise] = Field(default_factory=list, description="Ordered exercises")
+    cautions: List[str] = Field(default_factory=list, description="Safety warnings or caveats")
+
+class TutorialStep(BaseModel):
+    step_number: int = Field(description="Step index starting at 1")
+    description: str = Field(description="Instruction for this step")
+    code_snippet: Optional[str] = Field(default=None, description="Code or CLI command if applicable")
+    language: Optional[str] = Field(default=None, description="Language for syntax highlighting if code snippet")
+
+class TutorialData(BaseModel):
+    prerequisites: List[str] = Field(default_factory=list, description="Prerequisites or tools needed before starting")
+    steps: List[TutorialStep] = Field(default_factory=list, description="Numbered actionable steps")
+    result: Optional[str] = Field(default=None, description="Expected outcome or final result")
+
+class ToolOrProductData(BaseModel):
+    name: str = Field(description="Tool or product name")
+    what_it_does: str = Field(description="Core value proposition or functionality")
+    key_features: List[str] = Field(default_factory=list, description="Key features, specs, or capabilities")
+    price_if_stated: Optional[str] = Field(default=None, description="Pricing or tier if explicitly stated")
+    alternatives_mentioned: List[str] = Field(default_factory=list, description="Alternatives or competitors mentioned")
+    link: Optional[str] = Field(default=None, description="Official URL or repo link if stated")
+
+class PlaceData(BaseModel):
+    name: str = Field(description="Place, venue, landmark, or attraction name")
+    location_as_stated: str = Field(description="City, neighborhood, or country as stated in reel")
+    what_to_do_or_eat: List[str] = Field(default_factory=list, description="Highlights, dishes, or activities recommended")
+    tips: List[str] = Field(default_factory=list, description="Insider tips, booking advice, or warnings")
+    best_time: Optional[str] = Field(default=None, description="Best time or season to visit if stated")
+
+class BookOrMediaData(BaseModel):
+    title: str = Field(description="Title of book, movie, podcast, or artwork")
+    creator: Optional[str] = Field(default=None, description="Author, director, host, or creator")
+    why_recommended: str = Field(description="Core thesis, takeaway, or why recommended")
+    where_to_find: Optional[str] = Field(default=None, description="Where to read, watch, or listen")
+
+class AdviceData(BaseModel):
+    main_claim: str = Field(description="Core philosophy, mindset lesson, or advice thesis")
+    supporting_points: List[str] = Field(default_factory=list, description="Supporting arguments or practical principles")
+    caveats: List[str] = Field(default_factory=list, description="Nuances, exceptions, or warnings")
+
+class GeneralData(BaseModel):
+    summary: str = Field(description="Comprehensive executive summary")
+    key_points: List[str] = Field(default_factory=list, description="Main takeaway points")
+
+class TimestampSegment(BaseModel):
+    start: float = Field(description="Start time in seconds")
+    end: float = Field(description="End time in seconds")
+    text: str = Field(description="Spoken text in this short segment")
+
+class KeyMoment(BaseModel):
+    time: float = Field(description="Timestamp in seconds")
+    label: str = Field(description="Short concise description of what happens at this moment")
+
 class ExtractedResource(BaseModel):
     name: str = Field(description="Name of tool, repo, product, or concept")
-    type: str = Field(description="One of: 'tool', 'github_repo', 'product', 'website', 'concept'")
-    url: str = Field(description="Direct URL visible on screen or in caption. Leave empty string if unknown.")
+    type: str = Field(description="One of: 'tool', 'github_repo', 'product', 'website', 'concept', 'place'")
+    url: str = Field(default="", description="Direct URL visible on screen or in caption. Leave empty string if unknown.")
     description: str = Field(description="Brief explanation of what it is and why it was mentioned")
 
 class StructuredContent(BaseModel):
@@ -30,12 +107,27 @@ class ReelKnowledgeCard(BaseModel):
     title: str = Field(description="Clear, punchy, descriptive title removing clickbait")
     category: str = Field(description="Must match exactly one of the provided category names")
     suggested_new_category: Optional[str] = Field(default=None, description="If none of the allowed categories fits well, suggest a short, high-level new category name. Otherwise null.")
-    tags: list[str] = Field(description="3 to 6 concise keyword tags")
+    tags: List[str] = Field(description="3 to 6 concise keyword tags")
     summary: str = Field(description="2-3 sentence executive summary explaining what the reel covers and why it matters")
     transcript: str = Field(description="Complete audio speech transcription. If there is no speech (only music or silence), explicitly state: 'No speech in video (music/silent)'.")
-    key_takeaways: list[str] = Field(description="3 to 5 actionable bullet points")
-    extracted_resources: list[ExtractedResource] = Field(description="Tools, repositories, products, or concepts mentioned or shown on screen")
+    key_takeaways: List[str] = Field(description="3 to 5 actionable bullet points")
+    extracted_resources: List[ExtractedResource] = Field(description="Tools, repositories, products, or concepts mentioned or shown on screen")
     structured_content: StructuredContent = Field(description="Detailed step-by-step breakdown or code block")
+    note_type: str = Field(default="general", description="One of: 'recipe', 'workout', 'tutorial', 'tool_or_product', 'place', 'book_or_media', 'advice', 'general'")
+    recipe_data: Optional[RecipeData] = Field(default=None)
+    workout_data: Optional[WorkoutData] = Field(default=None)
+    tutorial_data: Optional[TutorialData] = Field(default=None)
+    tool_or_product_data: Optional[ToolOrProductData] = Field(default=None)
+    place_data: Optional[PlaceData] = Field(default=None)
+    book_or_media_data: Optional[BookOrMediaData] = Field(default=None)
+    advice_data: Optional[AdviceData] = Field(default=None)
+    general_data: Optional[GeneralData] = Field(default=None)
+    key_moments: List[KeyMoment] = Field(default_factory=list, description="3 to 8 key moments in the video with timestamp and label")
+    timestamped_transcript: List[TimestampSegment] = Field(default_factory=list, description="Timestamped segments of spoken words")
+
+ALLOWED_NOTE_TYPES = {
+    "recipe", "workout", "tutorial", "tool_or_product", "place", "book_or_media", "advice", "general"
+}
 
 def extract_instagram_shortcode(url: str) -> str:
     """Validates that URL is an Instagram reel/post and extracts normalized shortcode."""
@@ -75,7 +167,6 @@ def download_reel(url: str, shortcode: str, progress_callback: Optional[Callable
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         
-        # Resolve downloaded video path
         actual_video_path = video_filepath
         if not os.path.exists(actual_video_path):
             for ext in ['mp4', 'mkv', 'webm']:
@@ -84,7 +175,6 @@ def download_reel(url: str, shortcode: str, progress_callback: Optional[Callable
                     actual_video_path = cand
                     break
 
-        # Move/standardize thumbnail
         actual_thumb_path = ""
         for ext in ['jpg', 'webp', 'png']:
             cand = os.path.join(videos_dir, f"{shortcode}.{ext}")
@@ -101,6 +191,7 @@ def download_reel(url: str, shortcode: str, progress_callback: Optional[Callable
             "uploader": info.get("uploader") or info.get("channel") or "Instagram Creator",
             "channel": info.get("channel") or info.get("uploader_id") or "creator",
             "description": info.get("description", ""),
+            "duration": info.get("duration", 0),
             "thumbnail": info.get("thumbnail") or "",
             "local_video_path": actual_video_path,
             "local_thumb_path": actual_thumb_path,
@@ -108,8 +199,66 @@ def download_reel(url: str, shortcode: str, progress_callback: Optional[Callable
             "webpage_url": info.get("webpage_url") or url,
         }
 
-def analyze_with_gemini(media_info: Dict[str, Any], progress_callback: Optional[Callable[[str], None]] = None) -> ReelKnowledgeCard:
-    """Uploads video to Gemini Files API, analyzes audio, visual frames, caption, and enforces structured category & output."""
+def normalize_and_validate_ai_output(parsed: ReelKnowledgeCard, max_duration: Optional[float] = None) -> Dict[str, Any]:
+    """Validates note_type, clamps/sorts timestamps, extracts type_data, and builds unified dictionary."""
+    data = parsed.model_dump()
+
+    # Validate note_type
+    n_type = data.get("note_type", "general").lower()
+    if n_type not in ALLOWED_NOTE_TYPES:
+        n_type = "general"
+    data["note_type"] = n_type
+
+    # Extract type_data dictionary
+    type_data_map = {
+        "recipe": data.get("recipe_data"),
+        "workout": data.get("workout_data"),
+        "tutorial": data.get("tutorial_data"),
+        "tool_or_product": data.get("tool_or_product_data"),
+        "place": data.get("place_data"),
+        "book_or_media": data.get("book_or_media_data"),
+        "advice": data.get("advice_data"),
+        "general": data.get("general_data"),
+    }
+    extracted_td = type_data_map.get(n_type) or {}
+    data["type_data"] = extracted_td
+
+    # Validate and sort key_moments
+    moments = []
+    for km in data.get("key_moments", []):
+        t = float(km.get("time", 0))
+        if t < 0:
+            continue
+        if max_duration and max_duration > 0 and t > max_duration:
+            t = max_duration
+        label = str(km.get("label", "")).strip()
+        if label:
+            moments.append({"time": round(t, 1), "label": label})
+    moments.sort(key=lambda m: m["time"])
+    data["key_moments"] = moments
+
+    # Validate and sort timestamped_transcript
+    segments = []
+    for seg in data.get("timestamped_transcript", []):
+        st = float(seg.get("start", 0))
+        en = float(seg.get("end", 0))
+        if st < 0:
+            st = 0
+        if en < st:
+            en = st + 1.0
+        if max_duration and max_duration > 0:
+            st = min(st, max_duration)
+            en = min(en, max_duration)
+        text = str(seg.get("text", "")).strip()
+        if text:
+            segments.append({"start": round(st, 1), "end": round(en, 1), "text": text})
+    segments.sort(key=lambda s: s["start"])
+    data["timestamped_transcript"] = segments
+
+    return data
+
+def analyze_with_gemini(media_info: Dict[str, Any], progress_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+    """Uploads video to Gemini Files API, performs structured multimodal extraction, and verifies links."""
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not configured in .env.")
 
@@ -122,8 +271,7 @@ def analyze_with_gemini(media_info: Dict[str, Any], progress_callback: Optional[
         progress_callback("Uploading video to Gemini Files API...")
 
     video_file = client.files.upload(file=video_path)
-    
-    # Wait for file processing if needed
+
     attempts = 0
     while video_file.state.name == "PROCESSING" and attempts < 15:
         time.sleep(2)
@@ -133,7 +281,6 @@ def analyze_with_gemini(media_info: Dict[str, Any], progress_callback: Optional[
     if video_file.state.name == "FAILED":
         raise RuntimeError("Gemini failed to process the uploaded video file.")
 
-    # Fetch active categories and recent user corrections from DB
     categories = db.get_categories()
     category_names = [c["name"] for c in categories]
     cat_list_str = ", ".join(f"'{c}'" for c in category_names)
@@ -146,7 +293,7 @@ def analyze_with_gemini(media_info: Dict[str, Any], progress_callback: Optional[
         ) + "\n"
 
     prompt = f"""You are the knowledge extraction engine for Savyor.
-Analyze the provided Instagram Reel video and its caption.
+Analyze the provided video and caption to produce an executive knowledge card.
 
 Original Caption:
 {media_info.get('description', '')}
@@ -155,49 +302,59 @@ Creator: {media_info.get('uploader')} (@{media_info.get('channel')})
 Reel URL: {media_info.get('webpage_url')}
 {corrections_block}
 MANDATORY RULES:
-1. Use ONLY the video (audio, visual frames, screen text, code) and the caption. NEVER invent, hallucinate, or extrapolate details not present.
-2. For the 'transcript' field: Accurately transcribe what is spoken in the audio word-for-word. If there is NO speech (only background music, sound effects, or silence), explicitly state: 'No speech in video (music/silent)'.
-3. Read all visible on-screen text, UI overlays, software interfaces, and code snippets.
-4. For 'extracted_resources': Include any tools, repositories, products, or websites mentioned in the audio or caption. If a URL is explicitly visible on screen or in the caption, include it in 'url'; otherwise, leave 'url' as an empty string.
-5. For 'category': You MUST select exactly ONE category from this allowed list: [{cat_list_str}]. If none fits well, choose the closest existing category as a fallback AND suggest a concise new category in 'suggested_new_category' (e.g. 'Woodworking').
+1. Ground truth rule: Use ONLY information present in the video (audio, visual frames, text overlays, software, code) or caption. Never guess, invent, or extrapolate quantities, prices, URLs, or locations. If a detail is missing, leave it empty or null. If audio is unclear, state so.
+2. Transcription: Accurately transcribe spoken words with timestamps in 'timestamped_transcript'. If no speech, set transcript to 'No speech in video (music/silent)'.
+3. Key moments: Provide 3 to 8 key moments in the video with timestamp in seconds and a short label.
+4. Note type: Classify the video into ONE of: recipe, workout, tutorial, tool_or_product, place, book_or_media, advice, general. Fill in the corresponding data block with structured facts.
+5. Category: Select exactly ONE category from [{cat_list_str}]. If none fits well, choose closest and suggest in 'suggested_new_category'.
+6. Resources: Extract any tools, repos, products, websites mentioned. If an external URL is visible, include it.
 """
 
     if progress_callback:
-        progress_callback("Gemini is watching video & transcribing audio...")
+        progress_callback("Gemini is watching video & extracting structured notes...")
 
-    # Call with 1 retry
     last_err = None
+    model_name = "gemini-2.5-flash"
+
     for attempt in range(2):
         try:
             response = client.models.generate_content(
-                model="gemini-3.5-flash-lite",
+                model=model_name,
                 contents=[video_file, prompt],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=ReelKnowledgeCard
                 )
             )
-            parsed_data = ReelKnowledgeCard.model_validate_json(response.text)
+            parsed_card = ReelKnowledgeCard.model_validate_json(response.text)
 
-            # Validate category against active list; fallback to 'Other' if not present
-            valid_map = {c["name"].lower(): c["name"] for c in categories}
-            if parsed_data.category.lower() in valid_map:
-                parsed_data.category = valid_map[parsed_data.category.lower()]
-            else:
-                parsed_data.category = "Other"
-            
-            # Clean up uploaded file
+            # Cleanup uploaded Gemini file
             try:
                 client.files.delete(name=video_file.name)
             except Exception:
                 pass
-                
-            return parsed_data
+
+            validated_data = normalize_and_validate_ai_output(parsed_card, max_duration=media_info.get("duration"))
+            validated_data["model_used"] = model_name
+
+            # Validate category against active list
+            valid_map = {c["name"].lower(): c["name"] for c in categories}
+            if validated_data["category"].lower() in valid_map:
+                validated_data["category"] = valid_map[validated_data["category"].lower()]
+            else:
+                validated_data["category"] = "Other"
+
+            # Verify extracted resources links
+            if progress_callback:
+                progress_callback("Verifying extracted links & resources...")
+            validated_data["extracted_resources"] = link_verifier.verify_reel_resources(validated_data.get("extracted_resources", []))
+
+            return validated_data
+
         except Exception as e:
             last_err = e
             time.sleep(2)
 
-    # Clean up on failure
     try:
         client.files.delete(name=video_file.name)
     except Exception:
@@ -208,8 +365,7 @@ MANDATORY RULES:
 def process_and_save_reel(url: str, progress_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     """End-to-end extraction, downloading, Gemini analysis, and database storage with duplicate blocking."""
     shortcode = extract_instagram_shortcode(url)
-    
-    # Duplicate check
+
     existing = db.get_reel_by_id(shortcode)
     if existing:
         if progress_callback:
@@ -217,33 +373,32 @@ def process_and_save_reel(url: str, progress_callback: Optional[Callable[[str], 
         return existing
 
     normalized_url = get_normalized_reel_url(shortcode)
-    
+
     # 1. Download
     media_info = download_reel(normalized_url, shortcode, progress_callback)
     media_info["source"] = "instagram"
-    
+
     # 2. Analyze with Gemini
-    ai_card = analyze_with_gemini(media_info, progress_callback)
-    
+    ai_card_dict = analyze_with_gemini(media_info, progress_callback)
+
     # 3. Assemble full card
-    card_dict = ai_card.model_dump()
+    card_dict = dict(ai_card_dict)
     card_dict["id"] = shortcode
     card_dict["media"] = media_info
     card_dict["source"] = "instagram"
 
     # 4. Resolve Category ID
     categories = db.get_categories()
-    cat_match = next((c for c in categories if c["name"].lower() == ai_card.category.lower()), None)
+    cat_match = next((c for c in categories if c["name"].lower() == card_dict["category"].lower()), None)
     card_dict["category_id"] = cat_match["id"] if cat_match else "other"
-    card_dict["suggested_new_category"] = ai_card.suggested_new_category
     card_dict["status"] = "unread"
-    
+
     # 5. Save to Database
     db.save_reel(card_dict)
-    
+
     if progress_callback:
         progress_callback("Successfully saved to Savyor!")
-        
+
     return db.get_reel_by_id(shortcode) or card_dict
 
 def process_and_save_upload(
@@ -267,17 +422,18 @@ def process_and_save_upload(
         "source": "upload"
     }
 
-    ai_card = analyze_with_gemini(media_info, progress_callback)
-
-    card_dict = ai_card.model_dump()
+    ai_card_dict = analyze_with_gemini(media_info, progress_callback)
+    if hasattr(ai_card_dict, "model_dump"):
+        card_dict = ai_card_dict.model_dump()
+    else:
+        card_dict = dict(ai_card_dict)
     card_dict["id"] = upload_id
     card_dict["media"] = media_info
     card_dict["source"] = "upload"
 
     categories = db.get_categories()
-    cat_match = next((c for c in categories if c["name"].lower() == ai_card.category.lower()), None)
+    cat_match = next((c for c in categories if c["name"].lower() == card_dict["category"].lower()), None)
     card_dict["category_id"] = cat_match["id"] if cat_match else "other"
-    card_dict["suggested_new_category"] = ai_card.suggested_new_category
     card_dict["status"] = "unread"
 
     db.save_reel(card_dict)
@@ -286,3 +442,49 @@ def process_and_save_upload(
         progress_callback("Successfully saved to Savyor!")
 
     return db.get_reel_by_id(upload_id) or card_dict
+
+def reprocess_existing_reel(reel_id: str, progress_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+    """
+    Re-analyzes an existing reel using local video file (or re-downloads if missing).
+    Preserves all user-edited fields (category_id, category, tags, status, reviewed_at).
+    """
+    existing = db.get_reel_by_id(reel_id)
+    if not existing:
+        raise ValueError(f"Reel '{reel_id}' not found.")
+
+    media = existing.get("media", {})
+    video_path = media.get("local_video_path")
+
+    # If video file missing, attempt redownload if Instagram URL available
+    if not video_path or not os.path.exists(video_path):
+        webpage_url = media.get("webpage_url") or f"https://www.instagram.com/reel/{reel_id}/"
+        if progress_callback:
+            progress_callback("Local video missing, re-downloading...")
+        redownloaded = download_reel(webpage_url, reel_id, progress_callback)
+        video_path = redownloaded.get("local_video_path")
+        media["local_video_path"] = video_path
+
+    if not video_path or not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video file for reel '{reel_id}' is unavailable.")
+
+    media_info = {
+        "id": reel_id,
+        "uploader": media.get("uploader", "Unknown"),
+        "channel": media.get("channel", "unknown"),
+        "description": media.get("description", existing.get("summary", "")),
+        "thumbnail": media.get("thumbnail", ""),
+        "local_video_path": video_path,
+        "local_thumb_path": media.get("local_thumb_path", ""),
+        "direct_video_url": media.get("direct_video_url", ""),
+        "webpage_url": media.get("webpage_url", ""),
+        "source": existing.get("source", "instagram")
+    }
+
+    ai_card_dict = analyze_with_gemini(media_info, progress_callback)
+    model_name = ai_card_dict.get("model_used", "gemini-2.5-flash")
+
+    # Update database preserving user edits
+    updated = db.reprocess_reel_data(reel_id, ai_card_dict, model_used=model_name)
+    if progress_callback:
+        progress_callback("Reprocessing complete!")
+    return updated or existing
