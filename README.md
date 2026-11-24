@@ -63,6 +63,32 @@ npm.cmd run build
 
 ---
 
+## 💾 Database & Media Backups
+
+Savyor includes built-in scripts to create consistent, online backups of your SQLite database (using SQLite's native online backup API, preventing corruption during live writes) and media storage.
+
+### Create a Backup
+```powershell
+# Python
+python scripts/backup.py
+
+# Or PowerShell wrapper
+powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
+```
+Backups are saved to `backups/YYYY-MM-DD_HHMMSS/` containing `reels.db` and the `media/` folder. Savyor automatically retains the newest 10 backups and removes older ones.
+
+### Restore from Backup
+```powershell
+# Interactive selection (shows list of available backups)
+python scripts/restore.py
+
+# Or restore a specific backup folder
+python scripts/restore.py backups/2026-11-24_140345
+```
+Before overwriting any files, `scripts/restore.py` prompts for explicit confirmation (`yes`) and creates an automatic pre-restore safety backup of current data first.
+
+---
+
 ## 🧪 Running Automated Tests
 
 Run the full pytest test suite:
