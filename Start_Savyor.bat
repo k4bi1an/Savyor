@@ -37,7 +37,7 @@ if %ERRORLEVEL% EQU 0 (
     echo  Opening in your default browser...
     echo ========================================================
     echo.
-    start "" "http://localhost:8000"
+    "%PYTHON_EXE%" -c "import webbrowser; webbrowser.open('http://127.0.0.1:8000')"
     ping -n 2 127.0.0.1 >nul
     exit /b 0
 )
