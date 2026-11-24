@@ -5,6 +5,7 @@
 
 # Databases
 reels.db
+reels.db-*
 *.db
 *.db-wal
 *.db-shm
@@ -12,6 +13,9 @@ reels.db
 # Media storage
 media/
 media_backup/
+
+# Backups
+backups/
 
 # Virtual environments
 .venv/
@@ -24,6 +28,25 @@ frontend/node_modules/
 frontend/dist/
 dist/
 build/
+
+# Tests & Screenshots
+tests/e2e/screenshots/
+
+# Logs
+*.log
+
+# Keystore files
+*.jks
+*.keystore
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # MCP local tokens and environments
 mcp/.token
