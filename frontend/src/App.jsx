@@ -116,9 +116,7 @@ export default function App() {
 
   const apiFetch = useCallback(
     (url, options = {}) => {
-      const activeToken = localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token') || '';
       const headers = {
-        'X-API-Token': activeToken,
         ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
         ...(options.headers || {}),
       };
@@ -148,7 +146,6 @@ export default function App() {
       if (res.status === 401) {
         setIsAuthenticated(false);
         localStorage.removeItem('savyor_passcode');
-        localStorage.removeItem('reelvault_token');
         return;
       }
       if (res.ok) {
@@ -176,7 +173,7 @@ export default function App() {
           setIsAuthenticated(true);
         } else {
           // If server requires auth and cookie is missing, check if localStorage has passcode
-          const storedToken = localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token');
+          const storedToken = localStorage.getItem('savyor_passcode');
           if (storedToken) {
             try {
               const loginRes = await fetch('/api/login', {
@@ -191,7 +188,6 @@ export default function App() {
               }
             } catch (_) {}
             localStorage.removeItem('savyor_passcode');
-            localStorage.removeItem('reelvault_token');
           }
           if (isMounted) setIsAuthenticated(false);
         }
@@ -541,7 +537,6 @@ export default function App() {
       await fetch('/api/logout', { method: 'POST', credentials: 'include' });
     } catch (_) {}
     localStorage.removeItem('savyor_passcode');
-    localStorage.removeItem('reelvault_token');
     setIsAuthenticated(false);
   };
 

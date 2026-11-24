@@ -37,7 +37,7 @@ if %ERRORLEVEL% EQU 0 (
     echo  Opening in your default browser...
     echo ========================================================
     echo.
-    start http://localhost:8000
+    start "" "http://localhost:8000"
     ping -n 2 127.0.0.1 >nul
     exit /b 0
 )
@@ -62,8 +62,8 @@ echo  Opening browser automatically in 2 seconds...
 echo  (Leave this window open while using Savyor. Close it to stop.)
 echo.
 
-:: Launch browser in background after 2 seconds
-start /b cmd /c "ping -n 3 127.0.0.1 >nul & start http://localhost:8000"
+:: Launch browser in background using python webbrowser (bulletproof on Windows)
+start /b "" "%PYTHON_EXE%" -c "import time, webbrowser; time.sleep(2); webbrowser.open('http://127.0.0.1:8000')"
 
 :: Start the Savyor server
 "%PYTHON_EXE%" server.py

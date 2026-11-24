@@ -111,7 +111,16 @@ async def lifespan(app: FastAPI):
         
     # 2. Startup: Security & Passcode Check
     if not SAVYOR_PASSCODE:
-        print("⚠️ WARNING: SAVYOR_PASSCODE is not set in .env. Running open on localhost (127.0.0.1) only. Sharing or network access requires setting SAVYOR_PASSCODE.")
+        for i, a in enumerate(sys.argv):
+            if a in ("--host", "-h") and i + 1 < len(sys.argv):
+                bound_h = sys.argv[i + 1].strip()
+                if bound_h not in ("127.0.0.1", "localhost"):
+                    sys.exit(f"CRITICAL CONFIGURATION ERROR: SAVYOR_PASSCODE is unset. The server refuses to start when bound to '{bound_h}'. Network exposure requires setting SAVYOR_PASSCODE.")
+            elif a.startswith("--host="):
+                bound_h = a.split("=", 1)[1].strip()
+                if bound_h not in ("127.0.0.1", "localhost"):
+                    sys.exit(f"CRITICAL CONFIGURATION ERROR: SAVYOR_PASSCODE is unset. The server refuses to start when bound to '{bound_h}'. Network exposure requires setting SAVYOR_PASSCODE.")
+        print("⚠️ WARNING: SAVYOR_PASSCODE is unset. Running open on localhost (127.0.0.1) only. Network exposure requires setting SAVYOR_PASSCODE.")
     else:
         print("✓ SAVYOR_PASSCODE is active with signed HttpOnly sessions.")
 
@@ -153,7 +162,7 @@ def healthz():
     return {"status": "ok"}
 
 # Authentication Dependency
-def require_auth(request: Request, x_api_token: Optional[str] = Header(None)):
+def require_auth(request: Request):
     # If no passcode is set in .env, running open on localhost
     if not SAVYOR_PASSCODE:
         return "open_access"
@@ -163,10 +172,10 @@ def require_auth(request: Request, x_api_token: Optional[str] = Header(None)):
     if cookie_token and verify_session(cookie_token):
         return "session_valid"
 
-    # 2. Check X-API-Token header or ?token= query parameter (constant-time compare)
-    token = x_api_token or request.query_params.get("token")
-    if token and SAVYOR_PASSCODE and hmac.compare_digest(token.encode(), SAVYOR_PASSCODE.encode()):
-        return "token_valid"
+    # 2. Check query parameter session token fallback (for media streaming)
+    token = request.query_params.get("session") or request.query_params.get("token")
+    if token and verify_session(token):
+        return "session_valid"
 
     raise HTTPException(status_code=401, detail="Unauthorized: Passcode or valid session required.")
 
@@ -211,7 +220,7 @@ def login(payload: LoginRequest, request: Request, response: Response):
         secure=is_https,
     )
 
-    return {"status": "ok", "token": entered}
+    return {"status": "ok"}
 
 @app.post("/api/auth/verify")
 def verify_auth_passcode(payload: LoginRequest, request: Request, response: Response):
@@ -219,18 +228,14 @@ def verify_auth_passcode(payload: LoginRequest, request: Request, response: Resp
     return login(payload, request, response)
 
 @app.get("/api/auth/status")
-def get_auth_status(request: Request, x_api_token: Optional[str] = Header(None)):
+def get_auth_status(request: Request):
     is_required = bool(SAVYOR_PASSCODE)
     is_authenticated = False
     cookie_token = request.cookies.get(COOKIE_NAME)
     if cookie_token and verify_session(cookie_token):
         is_authenticated = True
-    else:
-        token = x_api_token or request.query_params.get("token")
-        if token and SAVYOR_PASSCODE and hmac.compare_digest(token.encode(), SAVYOR_PASSCODE.encode()):
-            is_authenticated = True
-        elif not is_required:
-            is_authenticated = True
+    elif not is_required:
+        is_authenticated = True
     return {"auth_required": is_required, "is_authenticated": is_authenticated}
 
 @app.post("/api/logout")
@@ -631,11 +636,14 @@ def remove_reel(reel_id: str, auth: str = Depends(require_auth)):
 
 # Static Files & SPA Catch-all
 if os.path.exists("frontend/dist"):
-    assets_dir = os.path.join("frontend/dist", "assets")
+    assets_dir = os.path.abspath(os.path.join("frontend/dist", "assets"))
+    dist_dir = os.path.abspath("frontend/dist")
 
     @app.get("/assets/{asset_name:path}")
     def serve_asset(asset_name: str):
-        target = os.path.join(assets_dir, asset_name)
+        target = os.path.abspath(os.path.join(assets_dir, asset_name))
+        if not target.startswith(assets_dir):
+            raise HTTPException(status_code=404, detail="Asset not found")
         if os.path.isfile(target):
             media_type = "application/javascript" if asset_name.endswith(".js") else "text/css" if asset_name.endswith(".css") else None
             return FileResponse(target, media_type=media_type)
@@ -651,22 +659,59 @@ if os.path.exists("frontend/dist"):
                         return FileResponse(os.path.join(assets_dir, f), media_type="text/css")
         raise HTTPException(status_code=404, detail="Asset not found")
 
+    BLOCKED_NAMES = {".env", "reels.db", "server.py", "db.py", "process_reel.py", "ai_processor.py", "requirements.txt", "urls.txt"}
+    BLOCKED_PREFIXES = ("media", ".env", "backups", "tests", "scripts", ".git", ".venv")
+    BLOCKED_EXTENSIONS = {".env", ".db", ".sqlite", ".py", ".log", ".sh", ".ps1", ".bat", ".key", ".jks", ".keystore", ".bak"}
+
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="API route not found")
-        target_file = os.path.join("frontend/dist", full_path)
+
+        clean_path = full_path.strip("/\\")
+        base_name = os.path.basename(clean_path).lower()
+        ext = os.path.splitext(base_name)[1].lower()
+
+        # Reject path traversals, sensitive files, media folder, or dotfiles
+        if (
+            base_name in BLOCKED_NAMES
+            or ext in BLOCKED_EXTENSIONS
+            or any(clean_path.lower().startswith(p) for p in BLOCKED_PREFIXES)
+            or any(part.startswith(".") for part in clean_path.split("/") if part)
+        ):
+            raise HTTPException(status_code=404, detail="Not found")
+
+        target_file = os.path.abspath(os.path.join(dist_dir, full_path))
+        if not target_file.startswith(dist_dir):
+            raise HTTPException(status_code=404, detail="Not found")
+
         if full_path and os.path.isfile(target_file):
             return FileResponse(target_file)
+
+        # Nonexistent asset files should return 404 instead of index.html
+        if ext:
+            raise HTTPException(status_code=404, detail="Not found")
+
         return FileResponse(
-            "frontend/dist/index.html",
+            os.path.join(dist_dir, "index.html"),
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
         )
 
 if __name__ == "__main__":
     import uvicorn
-    # If no passcode, bind only to 127.0.0.1
-    host = "0.0.0.0" if SAVYOR_PASSCODE else "127.0.0.1"
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Savyor API Server")
+    parser.add_argument("--host", default=None, help="Bind socket host")
+    parser.add_argument("--port", type=int, default=8000, help="Bind socket port")
+    args, _ = parser.parse_known_args()
+
+    default_host = "0.0.0.0" if SAVYOR_PASSCODE else "127.0.0.1"
+    host = args.host or os.getenv("HOST") or default_host
+
     if not SAVYOR_PASSCODE:
+        if host not in ("127.0.0.1", "localhost"):
+            sys.exit(f"CRITICAL CONFIGURATION ERROR: SAVYOR_PASSCODE is unset. The server refuses to start when bound to '{host}'. It can only bind to 127.0.0.1 (localhost) when no passcode is set.")
         print("⚠️ WARNING: SAVYOR_PASSCODE is unset. Running open on localhost (127.0.0.1) only.")
-    uvicorn.run(app, host=host, port=8000)
+
+    uvicorn.run(app, host=host, port=args.port)

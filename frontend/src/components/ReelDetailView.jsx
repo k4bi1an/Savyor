@@ -31,13 +31,8 @@ export default function ReelDetailView({
   const creator = media.channel || media.uploader || 'instagram';
   const status = reel.status || 'unread';
 
-  const activeToken = typeof window !== 'undefined' ? (localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token') || '') : '';
-  const videoSrc = media.stream_url
-    ? (activeToken ? `${media.stream_url}${media.stream_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(activeToken)}` : media.stream_url)
-    : (media.direct_video_url || '');
-  const posterSrc = media.proxy_thumb_url
-    ? (activeToken ? `${media.proxy_thumb_url}${media.proxy_thumb_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(activeToken)}` : media.proxy_thumb_url)
-    : (media.thumbnail || '');
+  const videoSrc = media.stream_url || media.direct_video_url || '';
+  const posterSrc = media.proxy_thumb_url || media.thumbnail || '';
 
   // Format creation date
   const savedDate = reel.created_at

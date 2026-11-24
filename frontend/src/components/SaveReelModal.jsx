@@ -146,12 +146,10 @@ export default function SaveReelModal({ isOpen, onClose, onSave, onUpload, initi
         // Fallback direct upload if onUpload prop isn't passed
         const formData = new FormData();
         formData.append('file', selectedFile);
-        const activeToken = localStorage.getItem('savyor_passcode') || localStorage.getItem('reelvault_token') || '';
         
         setUploadProgress(40);
         const res = await fetch('/api/reels/upload', {
           method: 'POST',
-          headers: activeToken ? { 'X-API-Token': activeToken } : {},
           credentials: 'include',
           body: formData,
         });

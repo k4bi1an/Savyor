@@ -442,3 +442,96 @@ def test_upload_valid_mov_accepted_and_deleted(monkeypatch):
     r_del = client.delete(f"/api/reels/{reel_id}")
     assert r_del.status_code == 200
     assert not os.path.exists(mov_path)
+
+# 13. Passcode and Secret Leakage & Static File Mount Security
+def test_no_secret_leak_in_responses_or_errors():
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+
+    passcode = os.environ.get("SAVYOR_PASSCODE", "test_custom_passcode_2026")
+    secret_key = os.environ.get("SAVYOR_SECRET_KEY", "test_secure_session_secret_key_849204820184")
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    secrets_to_check = [s for s in [passcode, secret_key, api_key] if s and len(s) >= 8]
+
+    # 1. Login success response
+    r_login = client.post("/api/login", json={"passcode": passcode})
+    assert r_login.status_code == 200
+    resp_text = r_login.text
+    for s in secrets_to_check:
+        assert s not in resp_text
+
+    # 2. Login error response
+    r_wrong = client.post("/api/login", json={"passcode": "incorrect_guess_xyz"})
+    assert r_wrong.status_code == 401
+    for s in secrets_to_check:
+        assert s not in r_wrong.text
+
+    # 3. Auth status response
+    r_status = client.get("/api/auth/status")
+    for s in secrets_to_check:
+        assert s not in r_status.text
+
+    # 4. Error 404 response
+    r_404 = client.get("/api/nonexistent_route")
+    for s in secrets_to_check:
+        assert s not in r_404.text
+
+    # 5. Bad request 400 response
+    r_400 = client.post("/api/reels", json={"url": "https://not_instagram.com/bad"})
+    for s in secrets_to_check:
+        assert s not in r_400.text
+
+def test_static_mount_security_and_traversal_blocked():
+    from fastapi.testclient import TestClient
+    client = TestClient(server.app)
+
+    # Attempt to access sensitive files and folders
+    sensitive_targets = [
+        "/.env",
+        "/.env.example",
+        "/reels.db",
+        "/server.py",
+        "/db.py",
+        "/process_reel.py",
+        "/media",
+        "/media/",
+        "/media/videos/test.mp4",
+        "/backups",
+        "/scripts/backup.py",
+        "/../.env",
+        "/../../reels.db",
+        "/../../server.py"
+    ]
+
+    for target in sensitive_targets:
+        resp = client.get(target)
+        assert resp.status_code in (404, 401), f"Expected 404 or 401 for '{target}', got {resp.status_code}"
+
+def test_server_refuses_to_start_unbound_without_passcode():
+    import subprocess
+
+    # Server must refuse to start on 0.0.0.0 if SAVYOR_PASSCODE is unset
+    env_unbound = os.environ.copy()
+    env_unbound["SAVYOR_PASSCODE"] = ""
+    env_unbound["SAVYOR_REQUIRE_PASSCODE"] = "0"
+
+    res = subprocess.run(
+        [sys.executable, "server.py", "--host", "0.0.0.0"],
+        env=env_unbound,
+        capture_output=True,
+        text=True
+    )
+    assert res.returncode != 0
+    assert "CRITICAL CONFIGURATION ERROR: SAVYOR_PASSCODE is unset" in res.stderr
+
+    # Server binds to 127.0.0.1 when passcode is unset, printing a warning during startup
+    res_local = subprocess.run(
+        [sys.executable, "-c", "import server; from fastapi.testclient import TestClient; \nwith TestClient(server.app):\n    print('LOCALHOST_BOUND_OK')"],
+        env=env_unbound,
+        capture_output=True,
+        text=True
+    )
+    assert res_local.returncode == 0
+    assert "LOCALHOST_BOUND_OK" in res_local.stdout
+    assert "WARNING: SAVYOR_PASSCODE is unset" in res_local.stdout or "WARNING: SAVYOR_PASSCODE is unset" in res_local.stderr
