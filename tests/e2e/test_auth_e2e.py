@@ -4,13 +4,10 @@ import time
 import requests
 import hmac
 import hashlib
-from dotenv import load_dotenv
-
-load_dotenv()
 
 BASE_URL = os.getenv("SAVYOR_TEST_BASE_URL", "http://127.0.0.1:8001")
-TEST_PASSCODE = os.getenv("SAVYOR_PASSCODE", "test_passcode")
-SECRET_KEY = os.getenv("SAVYOR_SECRET_KEY", "test_secret_key")
+TEST_PASSCODE = os.getenv("SAVYOR_PASSCODE", "test_custom_passcode_2026")
+SECRET_KEY = os.getenv("SAVYOR_SECRET_KEY", "test_custom_secret_key_99999")
 
 # 1. Unauthenticated requests to every /api route and proxies MUST return 401
 @pytest.mark.parametrize("method,endpoint,body", [

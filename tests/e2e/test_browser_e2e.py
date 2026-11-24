@@ -54,13 +54,15 @@ def setup_test_environment(page: Page):
 def unlock_vault(page: Page):
     """Helper to enter passcode and unlock the vault."""
     page.goto(BASE_URL)
-    # Check if passcode input is visible
     passcode_input = page.locator("input[type='password']")
-    if passcode_input.is_visible():
+    home_btn = page.locator("button[aria-label='Savyor home']")
+    try:
+        passcode_input.wait_for(state="visible", timeout=3000)
         passcode_input.fill(TEST_PASSCODE)
         page.keyboard.press("Enter")
-        # Wait for header brand to appear
-        expect(page.locator("button[aria-label='Savyor home']")).to_be_visible()
+        expect(home_btn).to_be_visible(timeout=5000)
+    except Exception:
+        expect(home_btn).to_be_visible()
 
 # -----------------------------------------------------------------------------
 # 1. AUTH UI FLOW

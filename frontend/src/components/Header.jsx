@@ -131,7 +131,7 @@ export default function Header({
               onClick={() => setIsMobileSearchOpen(true)}
               title="Search"
               aria-label="Search reels"
-              className="sm:hidden w-7 h-10 flex items-center justify-center rounded-[8px] border border-[#E8E6E1] bg-[#FFFFFF] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors"
+              className="sm:hidden w-10 h-10 flex items-center justify-center rounded-[8px] border border-[#E8E6E1] bg-[#FFFFFF] text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors"
             >
               <Search size={14} />
             </button>
@@ -164,7 +164,7 @@ export default function Header({
                 title="Grid view (g)"
                 aria-label="Grid view"
                 aria-pressed={view === 'grid'}
-                className={`min-h-[38px] w-6 sm:w-auto p-1 sm:p-1.5 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
+                className={`min-h-[40px] min-w-[36px] sm:min-w-0 sm:min-h-0 p-1 sm:p-1.5 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
                   view === 'grid'
                     ? 'bg-[#2F5D50] text-[#FAFAF8]'
                     : 'text-[#6B6B6B] hover:text-[#1A1A1A] hover:bg-[#FAFAF8]'
@@ -178,7 +178,7 @@ export default function Header({
                 title="List view (l)"
                 aria-label="List view"
                 aria-pressed={view === 'list'}
-                className={`min-h-[38px] w-6 sm:w-auto p-1 sm:p-1.5 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
+                className={`min-h-[40px] min-w-[36px] sm:min-w-0 sm:min-h-0 p-1 sm:p-1.5 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
                   view === 'list'
                     ? 'bg-[#2F5D50] text-[#FAFAF8]'
                     : 'text-[#6B6B6B] hover:text-[#1A1A1A] hover:bg-[#FAFAF8]'
@@ -192,7 +192,7 @@ export default function Header({
                 title="Compact view (c)"
                 aria-label="Compact view"
                 aria-pressed={view === 'compact'}
-                className={`min-h-[38px] w-6 sm:w-auto p-1 sm:p-1.5 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
+                className={`min-h-[40px] min-w-[36px] sm:min-w-0 sm:min-h-0 p-1 sm:p-1.5 rounded-[6px] flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#2F5D50] ${
                   view === 'compact'
                     ? 'bg-[#2F5D50] text-[#FAFAF8]'
                     : 'text-[#6B6B6B] hover:text-[#1A1A1A] hover:bg-[#FAFAF8]'
@@ -232,7 +232,7 @@ export default function Header({
                 onClick={onOpenSettings}
                 title="Settings"
                 aria-label="Settings"
-                className="min-h-[40px] sm:min-h-0 w-7 sm:w-auto p-1 text-[#6B6B6B] hover:text-[#1A1A1A] flex items-center justify-center rounded-[8px] transition-colors focus:outline-none focus:ring-1 focus:ring-[#2F5D50]"
+                className="min-h-[40px] sm:min-h-0 w-10 sm:w-auto p-1 text-[#6B6B6B] hover:text-[#1A1A1A] flex items-center justify-center rounded-[8px] transition-colors focus:outline-none focus:ring-1 focus:ring-[#2F5D50]"
               >
                 <Settings size={14} />
               </button>

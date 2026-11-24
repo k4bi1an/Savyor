@@ -40,6 +40,13 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,h
 
 ## 🚀 How to Run Locally
 
+### System Requirements
+- **Python 3.10+** and **Node.js 18+**
+- **ffmpeg (Recommended):** Required for direct video upload poster generation and high-resolution stream format merging.
+  - Windows: `winget install ffmpeg` (or install via Chocolatey/Scoop)
+  - Ubuntu/Debian: `sudo apt update && sudo apt install -y ffmpeg`
+  - macOS: `brew install ffmpeg`
+
 ### 1. Run the Backend Server
 ```powershell
 # Activate Python virtual environment

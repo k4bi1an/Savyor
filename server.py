@@ -132,6 +132,16 @@ async def lifespan(app: FastAPI):
     os.makedirs(db.get_videos_dir(), exist_ok=True)
     os.makedirs(db.get_thumbs_dir(), exist_ok=True)
     
+    # 4. Startup: ffmpeg availability check
+    if not shutil.which("ffmpeg"):
+        print("⚠️ WARNING: ffmpeg is not installed or not found on PATH.", file=sys.stderr)
+        print("   Direct video upload thumbnails and video format merging depend on ffmpeg.", file=sys.stderr)
+        print("   Install instructions:", file=sys.stderr)
+        print("     Windows: winget install ffmpeg", file=sys.stderr)
+        print("     Ubuntu : sudo apt update && sudo apt install -y ffmpeg", file=sys.stderr)
+    else:
+        print("✓ ffmpeg is available.")
+    
     yield
     print("Shutting down Savyor server.")
 

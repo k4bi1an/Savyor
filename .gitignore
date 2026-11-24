@@ -64,3 +64,7 @@ processed_cards.json
 # Hosting test inputs and results
 urls.txt
 hosting_test_results.json
+
+# Scratch workspace
+scratch/
+
