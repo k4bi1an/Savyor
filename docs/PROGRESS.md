@@ -39,7 +39,7 @@ Documenting execution of `SAVYOR_MASTER_PLAN.md` across Part A, Part B, and Part
 
 ## Part B: Phase 2, Smarter Notes
 
-- **Commit**: (pending commit)
+- **Commit**: `b25d234`
 - **Status**: Completed
 - **Tests Passed**: 64 passed, 0 failed
   - `tests/test_savyor.py`: 27 passed, 0 failed
