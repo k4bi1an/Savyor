@@ -1,9 +1,11 @@
 package com.savyor.app.ui.screens.library
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -23,13 +25,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.savyor.app.data.local.entity.ReelEntity
+import com.savyor.app.ui.components.StatusBadge
 import com.savyor.app.ui.theme.*
 import java.io.File
 
@@ -51,6 +53,7 @@ fun LibraryScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
+    var showStatusDropdown by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -69,7 +72,7 @@ fun LibraryScreen(
                         TextField(
                             value = searchQuery,
                             onValueChange = { viewModel.setSearchQuery(it) },
-                            placeholder = { Text("Search titles, notes, transcripts, tags...", fontSize = 14.sp) },
+                            placeholder = { Text("Search titles, notes, tags...", fontSize = 14.sp) },
                             singleLine = true,
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
@@ -80,28 +83,14 @@ fun LibraryScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                     } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Savyor",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 22.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                letterSpacing = (-0.5).sp
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text(
-                                    text = "NOTES",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
+                        Text(
+                            text = "Savyor",
+                            fontFamily = NewsreaderFontFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 26.sp,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            letterSpacing = (-0.3).sp
+                        )
                     }
                 },
                 actions = {
@@ -111,19 +100,22 @@ fun LibraryScreen(
                     }) {
                         Icon(
                             imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
-                            contentDescription = "Search"
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(onClick = { viewModel.toggleViewMode() }) {
                         Icon(
                             imageVector = if (viewMode == ViewMode.GRID) Icons.Outlined.ViewList else Icons.Outlined.GridView,
-                            contentDescription = "Toggle View"
+                            contentDescription = "Toggle View",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(
                             imageVector = Icons.Outlined.Settings,
-                            contentDescription = "Settings"
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
@@ -136,7 +128,8 @@ fun LibraryScreen(
             FloatingActionButton(
                 onClick = { showAddDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = CircleShape
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add Reel")
             }
@@ -148,7 +141,7 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Category horizontal tabs
+            // Category horizontal pill tabs
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -157,25 +150,19 @@ fun LibraryScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 item {
-                    FilterChip(
-                        selected = selectedCategory == "All",
-                        onClick = { viewModel.selectCategory("All") },
-                        label = { Text("All") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = Color.White
-                        )
+                    val isAllSelected = selectedCategory == "All"
+                    CategoryPill(
+                        text = "All",
+                        selected = isAllSelected,
+                        onClick = { viewModel.selectCategory("All") }
                     )
                 }
                 items(categories) { cat ->
-                    FilterChip(
-                        selected = selectedCategory == cat.name,
-                        onClick = { viewModel.selectCategory(cat.name) },
-                        label = { Text(cat.name) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = Color.White
-                        )
+                    val isSelected = selectedCategory == cat.name
+                    CategoryPill(
+                        text = cat.name,
+                        selected = isSelected,
+                        onClick = { viewModel.selectCategory(cat.name) }
                     )
                 }
                 item {
@@ -183,37 +170,83 @@ fun LibraryScreen(
                         onClick = { showAddCategoryDialog = true },
                         modifier = Modifier.size(32.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Category", tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "Add Category",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }
 
-            // Status filter chips
-            val statuses = listOf("All", "UNREAD", "REVIEWED", "TRIED", "ARCHIVED")
-            LazyRow(
+            // Compact Status & Reel Count Row
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                items(statuses) { status ->
-                    AssistChip(
-                        onClick = { viewModel.selectStatus(status) },
-                        label = {
+                // Status Dropdown Pill
+                Box {
+                    val displayStatus = if (selectedStatus == "All") "Status: All" else selectedStatus.lowercase().replaceFirstChar { it.uppercase() }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline),
+                        modifier = Modifier.clickable { showStatusDropdown = true }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
                             Text(
-                                text = if (status == "All") "Status: All" else status.lowercase().replaceFirstChar { it.uppercase() },
-                                fontSize = 12.sp
+                                text = displayStatus,
+                                fontFamily = InterFontFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
-                        },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = if (selectedStatus == status) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (selectedStatus == status) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                        )
-                    )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showStatusDropdown,
+                        onDismissRequest = { showStatusDropdown = false }
+                    ) {
+                        listOf("All", "UNREAD", "REVIEWED", "TRIED", "ARCHIVED").forEach { st ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (st == "All") "All Statuses" else st.lowercase().replaceFirstChar { it.uppercase() },
+                                        fontFamily = InterFontFamily,
+                                        fontSize = 13.sp
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.selectStatus(st)
+                                    showStatusDropdown = false
+                                }
+                            )
+                        }
+                    }
                 }
+
+                // Subtle Reel Count
+                Text(
+                    text = "${reels.size} ${if (reels.size == 1) "reel" else "reels"}",
+                    fontFamily = InterFontFamily,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             // Active processing jobs banner / cards
@@ -221,7 +254,7 @@ fun LibraryScreen(
                 ActiveJobsSection(activeJobs)
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Main Content: Reels Grid or List
             if (reels.isEmpty()) {
@@ -231,8 +264,8 @@ fun LibraryScreen(
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
                         contentPadding = PaddingValues(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(reels, key = { it.id }) { reel ->
@@ -242,7 +275,7 @@ fun LibraryScreen(
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(reels, key = { it.id }) { reel ->
@@ -259,16 +292,29 @@ fun LibraryScreen(
         var inputUrl by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("Save Instagram Reel") },
+            title = {
+                Text(
+                    "Save Instagram Reel",
+                    fontFamily = NewsreaderFontFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 20.sp
+                )
+            },
             text = {
                 Column {
-                    Text("Paste an Instagram reel link to analyze and extract self-contained notes:", fontSize = 13.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Paste a public Instagram reel link to analyze and extract self-contained knowledge notes:",
+                        fontFamily = InterFontFamily,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
                         value = inputUrl,
                         onValueChange = { inputUrl = it },
-                        placeholder = { Text("https://www.instagram.com/reel/...") },
+                        placeholder = { Text("https://www.instagram.com/reel/...", fontSize = 13.sp) },
                         singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -281,14 +327,18 @@ fun LibraryScreen(
                             showAddDialog = false
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("Analyze & Save")
+                    Text("Analyze & Save", fontFamily = InterFontFamily, fontWeight = FontWeight.Medium)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showAddDialog = false }) {
-                    Text("Cancel")
+                    Text("Cancel", fontFamily = InterFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -299,13 +349,21 @@ fun LibraryScreen(
         var newCatName by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showAddCategoryDialog = false },
-            title = { Text("New Custom Category") },
+            title = {
+                Text(
+                    "New Category",
+                    fontFamily = NewsreaderFontFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 20.sp
+                )
+            },
             text = {
                 OutlinedTextField(
                     value = newCatName,
                     onValueChange = { newCatName = it },
-                    label = { Text("Category Name") },
+                    label = { Text("Category Name", fontFamily = InterFontFamily) },
                     singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -317,16 +375,43 @@ fun LibraryScreen(
                             showAddCategoryDialog = false
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("Create")
+                    Text("Create", fontFamily = InterFontFamily)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showAddCategoryDialog = false }) {
-                    Text("Cancel")
+                    Text("Cancel", fontFamily = InterFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        )
+    }
+}
+
+@Composable
+fun CategoryPill(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        border = if (selected) null else BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Text(
+            text = text,
+            fontFamily = InterFontFamily,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
         )
     }
 }
@@ -338,21 +423,23 @@ fun ActiveJobsSection(jobs: List<ReelEntity>) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
         ),
-        shape = RoundedCornerShape(10.dp)
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(14.dp),
                     strokeWidth = 2.dp,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Processing ${jobs.size} reel(s) in background...",
-                    fontSize = 13.sp,
+                    text = "Analyzing ${jobs.size} reel(s) in background...",
+                    fontFamily = InterFontFamily,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -360,14 +447,15 @@ fun ActiveJobsSection(jobs: List<ReelEntity>) {
             Spacer(modifier = Modifier.height(6.dp))
             jobs.take(2).forEach { job ->
                 val stateText = when (job.processingState) {
-                    "DOWNLOADING" -> "Downloading progressive video..."
-                    "ANALYZING" -> "Gemini multimodal note extraction..."
+                    "DOWNLOADING" -> "Downloading progressive stream..."
+                    "ANALYZING" -> "Gemini multimodal knowledge extraction..."
                     else -> "Queued in WorkManager..."
                 }
                 Text(
                     text = "@${job.shortcode}: $stateText",
+                    fontFamily = InterFontFamily,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -380,17 +468,17 @@ fun ReelGridCard(reel: ReelEntity, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
     ) {
         Column {
-            // Thumbnail
+            // Thumbnail with Frosted Status Badge
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .background(Color(0xFFEFEFEF))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             ) {
                 if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
                     AsyncImage(
@@ -404,63 +492,43 @@ fun ReelGridCard(reel: ReelEntity, onClick: () -> Unit) {
                         Icon(
                             imageVector = Icons.Default.PlayCircleOutline,
                             contentDescription = null,
-                            tint = Color.Gray,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                             modifier = Modifier.size(36.dp)
                         )
                     }
                 }
 
-                // Status chip on top right
-                Surface(
-                    color = getStatusColor(reel.status),
-                    shape = RoundedCornerShape(4.dp),
+                // Frosted Status Badge on Top Right
+                StatusBadge(
+                    status = reel.status,
+                    isFrosted = true,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(6.dp)
-                ) {
-                    Text(
-                        text = reel.status,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                    )
-                }
+                        .padding(8.dp)
+                )
             }
 
-            // Text Info
-            Column(modifier = Modifier.padding(10.dp)) {
-                Text(
-                    text = reel.category,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1
-                )
-                Spacer(modifier = Modifier.height(2.dp))
+            // Text Info: 2-line Newsreader Title + Quiet Footer
+            Column(modifier = Modifier.padding(12.dp)) {
                 Text(
                     text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontFamily = NewsreaderFontFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 19.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 16.sp
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                if (reel.useWhen.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Use when: ${reel.useWhen}",
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+                val creatorText = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}"
                 Text(
-                    text = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}",
+                    text = "$creatorText · ${reel.category}",
+                    fontFamily = InterFontFamily,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -473,17 +541,17 @@ fun ReelListCard(reel: ReelEntity, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
     ) {
-        Row(modifier = Modifier.padding(10.dp)) {
-            // Thumbnail
+        Row(modifier = Modifier.padding(12.dp)) {
+            // Thumbnail with Frosted Status Badge
             Box(
                 modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFEFEFEF))
+                    .size(84.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             ) {
                 if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
                     AsyncImage(
@@ -497,63 +565,56 @@ fun ReelListCard(reel: ReelEntity, onClick: () -> Unit) {
                         Icon(
                             imageVector = Icons.Default.PlayCircleOutline,
                             contentDescription = null,
-                            tint = Color.Gray,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                             modifier = Modifier.size(28.dp)
                         )
                     }
                 }
+
+                StatusBadge(
+                    status = reel.status,
+                    isFrosted = true,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                )
             }
 
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = reel.category,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Surface(
-                        color = getStatusColor(reel.status),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = reel.status,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontFamily = NewsreaderFontFamily,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 20.sp,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 if (reel.useWhen.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val cleanUseWhen = reel.useWhen.replace(
+                        Regex("^(Use when:|Use when|Refer to this note when:?|Refer to this note when)\\s*", RegexOption.IGNORE_CASE),
+                        ""
+                    ).trim()
                     Text(
-                        text = "Use when: ${reel.useWhen}",
+                        text = cleanUseWhen,
+                        fontFamily = InterFontFamily,
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+                val creatorText = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}"
                 Text(
-                    text = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}",
+                    text = "$creatorText · ${reel.category}",
+                    fontFamily = InterFontFamily,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -574,7 +635,7 @@ fun EmptyLibraryView(onAddClick: () -> Unit) {
         ) {
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
                 modifier = Modifier.size(72.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -588,39 +649,34 @@ fun EmptyLibraryView(onAddClick: () -> Unit) {
             }
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Your library is empty",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
+                text = "Your library is calm",
+                fontFamily = NewsreaderFontFamily,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Share any Instagram reel to Savyor from the Instagram app, or tap below to paste a link.",
+                text = "Share any Instagram reel to Savyor, or tap below to paste a reel link.",
+                fontFamily = InterFontFamily,
                 fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 20.dp)
+                modifier = Modifier.padding(horizontal = 24.dp)
             )
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(20.dp))
             Button(
                 onClick = onAddClick,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(8.dp)
             ) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Add Reel")
+                Text("Add Reel", fontFamily = InterFontFamily, fontWeight = FontWeight.Medium)
             }
         }
-    }
-}
-
-fun getStatusColor(status: String): Color {
-    return when (status.uppercase()) {
-        "UNREAD" -> BadgeUnread
-        "REVIEWED" -> BadgeReviewed
-        "TRIED" -> BadgeTried
-        "ARCHIVED" -> BadgeArchived
-        "FAILED" -> BadgeError
-        else -> BadgeUnread
     }
 }

@@ -16,6 +16,8 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
 
+class GeminiApiException(val statusCode: Int, message: String) : Exception(message)
+
 interface IGeminiClient {
     suspend fun analyzeReel(
         apiKey: String,
@@ -69,9 +71,11 @@ class GeminiFilesClient(
 
         var remoteFileName: String? = null
         try {
-            // 1. Resumable Upload
+            // 1. Resumable Upload with retry
             Log.i(TAG, "Starting resumable upload for ${videoFile.name} (${videoFile.length()} bytes)")
-            val fileResource = uploadVideoResumable(apiKey, videoFile)
+            val fileResource = executeWithRetry("Upload") {
+                uploadVideoResumable(apiKey, videoFile)
+            }
             val fileUri = fileResource.fileUri
             remoteFileName = fileResource.fileName
             Log.i(TAG, "Uploaded video: name=$remoteFileName uri=$fileUri")
@@ -79,9 +83,11 @@ class GeminiFilesClient(
             // 2. Wait for ACTIVE state
             waitForFileActive(apiKey, remoteFileName)
 
-            // 3. Generate structured content
+            // 3. Generate structured content with exponential backoff retry (2s, 5s, 10s)
             Log.i(TAG, "Calling generateContent with model=$MODEL_NAME")
-            val analysis = generateContentWithFile(apiKey, fileUri, prompt)
+            val analysis = executeWithRetry("GenerateContent") {
+                generateContentWithFile(apiKey, fileUri, prompt)
+            }
             analysis
         } finally {
             // 4. Always clean up remote file from Google Cloud
@@ -93,6 +99,42 @@ class GeminiFilesClient(
                     Log.w(TAG, "Failed to delete remote file $name: ${e.message}")
                 }
             }
+        }
+    }
+
+    private suspend fun <T> executeWithRetry(
+        tag: String = "API",
+        maxAttempts: Int = 3,
+        backoffDelaysMs: List<Long> = listOf(2000L, 5000L, 10000L),
+        block: suspend () -> T
+    ): T {
+        var lastException: Exception? = null
+        for (attempt in 1..maxAttempts) {
+            try {
+                return block()
+            } catch (e: Exception) {
+                lastException = e
+                val isTransient = isTransientError(e)
+                if (!isTransient || attempt == maxAttempts) {
+                    Log.e(TAG, "[$tag] Fatal or exhausted attempt $attempt/$maxAttempts (${e.message})")
+                    throw e
+                }
+                val delayMs = backoffDelaysMs.getOrElse(attempt - 1) { 10000L }
+                Log.w(TAG, "[$tag] Transient error on attempt $attempt/$maxAttempts (${e.message}). Retrying in ${delayMs}ms...")
+                delay(delayMs)
+            }
+        }
+        throw lastException ?: Exception("[$tag] Operation failed after $maxAttempts attempts")
+    }
+
+    private fun isTransientError(e: Exception): Boolean {
+        if (e is java.net.SocketTimeoutException || e is java.io.IOException) return true
+        if (e is GeminiApiException) {
+            return e.statusCode in listOf(429, 500, 502, 503, 504)
+        }
+        val msg = e.message ?: ""
+        return listOf("429", "500", "502", "503", "504", "timeout", "SocketTimeout", "UNAVAILABLE", "RESOURCE_EXHAUSTED").any {
+            msg.contains(it, ignoreCase = true)
         }
     }
 
@@ -114,7 +156,8 @@ class GeminiFilesClient(
 
         val uploadUrl = client.newCall(startRequest).execute().use { resp ->
             if (!resp.isSuccessful) {
-                throw Exception("Failed to start upload session: HTTP ${resp.code} - ${resp.body?.string()}")
+                val err = resp.body?.string().orEmpty()
+                throw GeminiApiException(resp.code, "Failed to start upload session: HTTP ${resp.code} - $err")
             }
             resp.header("X-Goog-Upload-URL")
                 ?: throw Exception("Missing X-Goog-Upload-URL in upload initiation response")
@@ -145,7 +188,8 @@ class GeminiFilesClient(
 
                 client.newCall(chunkRequest).execute().use { resp ->
                     if (!resp.isSuccessful) {
-                        throw Exception("Chunk upload failed at offset $offset: HTTP ${resp.code} - ${resp.body?.string()}")
+                        val err = resp.body?.string().orEmpty()
+                        throw GeminiApiException(resp.code, "Chunk upload failed at offset $offset: HTTP ${resp.code} - $err")
                     }
                     if (isLastChunk) {
                         finalResponseBody = resp.body?.string().orEmpty()
@@ -172,7 +216,10 @@ class GeminiFilesClient(
         while (attempts < 30) {
             val request = Request.Builder().url(checkUrl).get().build()
             val state = client.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) throw Exception("Failed checking file state: HTTP ${resp.code}")
+                if (!resp.isSuccessful) {
+                    val err = resp.body?.string().orEmpty()
+                    throw GeminiApiException(resp.code, "Failed checking file state: HTTP ${resp.code} - $err")
+                }
                 val json = JsonParser.parseString(resp.body?.string().orEmpty()).asJsonObject
                 json.get("state")?.asString ?: "UNKNOWN"
             }
@@ -228,11 +275,12 @@ class GeminiFilesClient(
             .post(requestBodyJson.toRequestBody("application/json".toMediaType()))
             .build()
 
-        val responseBody = client.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) {
-                throw Exception("GenerateContent failed: HTTP ${resp.code} - ${resp.body?.string()}")
-            }
-            resp.body?.string().orEmpty()
+        val (statusCode, responseBody) = client.newCall(request).execute().use { resp ->
+            Pair(resp.code, resp.body?.string().orEmpty())
+        }
+
+        if (statusCode !in 200..299) {
+            throw GeminiApiException(statusCode, "GenerateContent failed: HTTP $statusCode - $responseBody")
         }
 
         return parseGeminiResponse(responseBody)

@@ -7,8 +7,13 @@ object GeminiPromptBuilder {
     fun buildSystemPrompt(
         originalCaption: String?,
         creatorHandle: String?,
+        availableCategories: List<String> = emptyList(),
         recentCorrections: List<CategoryCorrectionEntity> = emptyList()
     ): String {
+        val defaultCategories = listOf("Tech & Code", "Recipes & Cooking", "Health & Fitness", "Design & UI", "Other")
+        val effectiveCategories = if (availableCategories.isNotEmpty()) availableCategories else defaultCategories
+        val categoriesFormatted = effectiveCategories.joinToString(" | ")
+
         val correctionsSection = if (recentCorrections.isNotEmpty()) {
             buildString {
                 appendLine("\n### User Category Correction History (Learn from these recent preferences):")
@@ -37,7 +42,9 @@ $captionSection$correctionsSection
    - The video may be spoken or written in any language (e.g. Tamil, Hindi, Hinglish, Tanglish, Spanish, Japanese, French, or silent).
    - Detect and set "source_language" (e.g. "English", "Tamil", "Hindi + English", "Spanish", etc.).
    - ALWAYS write "title", "summary", "use_when", "key_takeaways", "structured_content", "key_moments" labels, and "extracted_resources" descriptions in natural, professional ENGLISH (retain original dish/proper names with a brief English gloss).
+   - Write "use_when" as a concise 6–12 word situation phrase WITHOUT starting with "Use when", "Refer to this note when", or similar preamble (e.g. "Structuring XML prompts for 60fps AI motion graphics", "Baking high-hydration sourdough bread", "Testing local RAG vector embeddings").
    - Provide "transcript" as a timestamped English transcript (e.g., "[0:00] ..."). If the spoken language is not English, ALSO provide "original_transcript" in the original spoken language/script.
+   - For silent or music-only reels with no spoken words, provide a concise timestamped narration of visual events in "transcript", explicitly prefixing each line with "(No speech — visual)" (e.g., "[0:00] (No speech — visual) Screen displays GitHub repo...").
 
 3. Anti-Clickbait & Direct Answers:
    - Discard all hook fluff ("Wait till the end", "You won't believe this").
@@ -57,15 +64,17 @@ $captionSection$correctionsSection
    - Select 2 to 4 key moments with "timestamp_sec" and "label". Specifically target timestamps where dense visual information is clearest (code editor, recipe result, ingredient list, comparison chart) rather than intro or talking-head frames.
 
 8. Categories:
-   - Assign the best matching category from: "Tech & Code", "Recipes & Cooking", "Health & Fitness", "Design & UI", "Other", or a tailored category based on the user's correction history.
+   - Assign the best matching category from available categories: $categoriesFormatted.
+   - If none match clearly or the content does not fit any specific category, assign "Other".
+   - Learn from user's category correction history when applicable.
 
 Output STRICT JSON conforming to the following structure with no enclosing markdown fences:
 {
   "title": "Clear concise English title stating the exact subject",
-  "category": "Tech & Code | Recipes & Cooking | Health & Fitness | Design & UI | Other",
+  "category": "$categoriesFormatted",
   "tags": ["tag1", "tag2"],
   "summary": "Direct, self-contained summary stating the core findings immediately.",
-  "use_when": "Concise 1-line cue on when to refer to this note later",
+  "use_when": "Concise 6-12 word situation phrase without preamble",
   "source_language": "English | Tamil | Hindi + English | etc.",
   "transcript": "[0:00] Timestamped English transcript...",
   "original_transcript": "Optional original language transcript if non-English, else null",
@@ -82,11 +91,14 @@ Output STRICT JSON conforming to the following structure with no enclosing markd
     "note_type": "recipe | tutorial | code | workout | listicle | product_review | concept_breakdown | travel_guide | general",
     "ingredients": [{"item": "Flour", "quantity": "250g"}],
     "steps": [{"step_number": 1, "instruction": "Mix ingredients"}],
+    "prerequisites": ["Docker Desktop installed", "Node.js 20+"],
     "commands": ["npm install", "docker run ..."],
     "code_snippets": ["```python\nprint('hello')\n```"],
+    "exercises": ["Bench press: 3 sets x 8 reps", "Incline dumbbell flyes: 3 sets x 12 reps"],
     "items": ["Item 1 with specific recommendation reasons", "Item 2..."]
   }
 }
+Note: Leave unused structured_content fields null.
 """.trimIndent()
     }
 }

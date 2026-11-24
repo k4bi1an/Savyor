@@ -28,9 +28,11 @@ class MainActivity : ComponentActivity() {
 
     private val libraryViewModel: LibraryViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
+    private val targetRouteState = androidx.compose.runtime.mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        targetRouteState.value = intent.getStringExtra("navigate_to")
 
         setContent {
             SavyorTheme {
@@ -39,6 +41,17 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
+
+                    val targetRoute = targetRouteState.value
+                    androidx.compose.runtime.LaunchedEffect(targetRoute) {
+                        if (!targetRoute.isNullOrBlank()) {
+                            if (targetRoute == Screen.Library.route) {
+                                navController.popBackStack(Screen.Library.route, false)
+                            } else {
+                                navController.navigate(targetRoute)
+                            }
+                        }
+                    }
 
                     NavHost(
                         navController = navController,
@@ -87,6 +100,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
+        targetRouteState.value = intent?.getStringExtra("navigate_to")
         intent?.let { handleIncomingUrl(it) }
     }
 

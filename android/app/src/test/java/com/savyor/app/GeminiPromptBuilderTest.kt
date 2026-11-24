@@ -12,6 +12,7 @@ class GeminiPromptBuilderTest {
         val prompt = GeminiPromptBuilder.buildSystemPrompt(
             originalCaption = "Easy 5 minute pasta recipe with garlic butter sauce",
             creatorHandle = "chef_chef",
+            availableCategories = listOf("Tech & Code", "Recipes & Cooking", "Health & Fitness", "Other"),
             recentCorrections = emptyList()
         )
 
@@ -22,6 +23,23 @@ class GeminiPromptBuilderTest {
         assertTrue(prompt.contains("Zero Hallucination & Comment-Gated Links"))
         assertTrue(prompt.contains("Original Creator Caption & Notes"))
         assertTrue(prompt.contains("@chef_chef"))
+        assertTrue(prompt.contains("WITHOUT starting with \"Use when\""))
+        assertTrue(prompt.contains("(No speech — visual)"))
+        assertTrue(prompt.contains("prerequisites"))
+        assertTrue(prompt.contains("exercises"))
+    }
+
+    @Test
+    fun testPromptIncludesDynamicCategories() {
+        val customCategories = listOf("Workouts", "Finance & Crypto", "Photography", "Other")
+        val prompt = GeminiPromptBuilder.buildSystemPrompt(
+            originalCaption = null,
+            creatorHandle = null,
+            availableCategories = customCategories,
+            recentCorrections = emptyList()
+        )
+
+        assertTrue(prompt.contains("Workouts | Finance & Crypto | Photography | Other"))
     }
 
     @Test
@@ -44,6 +62,7 @@ class GeminiPromptBuilderTest {
         val prompt = GeminiPromptBuilder.buildSystemPrompt(
             originalCaption = null,
             creatorHandle = null,
+            availableCategories = emptyList(),
             recentCorrections = corrections
         )
 

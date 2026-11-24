@@ -120,14 +120,65 @@ class SeedDataTest {
                 ExtractedResource("Simmakkal Kari Dosa Masala", "", "Traditional fennel-heavy spice blend")
             )),
             caveats = gson.toJson(listOf("Oven cooking is not recommended; requires stovetop tawa")),
-            useWhen = "Use when preparing a high-protein Sunday South Indian brunch.",
+            useWhen = "Preparing a high-protein Sunday South Indian brunch.",
             thumbnailPath = thumb2.absolutePath,
             status = "REVIEWED",
             processingState = "COMPLETED"
         )
 
+        // 3. Reel 3: Creative & Design (Multilingual Hindi + English)
+        val sc3 = "DeoRFIMOVtn"
+        val dir3 = File(context.filesDir, "snapshots/$sc3").apply { mkdirs() }
+        val thumb3 = File(dir3, "thumb.webp").apply { createPlaceholderWebp(this, "60FPS MOTION\nGRAPHICS", Color.rgb(40, 80, 70)) }
+        val moment3_1 = File(dir3, "moment_0.webp").apply { createPlaceholderWebp(this, "Keyframe\nEasing Graph", Color.rgb(30, 60, 50)) }
+        val moment3_2 = File(dir3, "moment_1.webp").apply { createPlaceholderWebp(this, "Export Preset\n4K 60fps", Color.rgb(20, 50, 45)) }
+
+        val reel3 = ReelEntity(
+            shortcode = sc3,
+            originalUrl = "https://www.instagram.com/reel/$sc3/",
+            cleanUrl = "https://www.instagram.com/reel/$sc3/",
+            creator = "motion_director",
+            sourceLanguage = "Hindi + English",
+            title = "Cinematic 60fps AI Motion Transitions in After Effects",
+            summary = "A comprehensive workflow guide for creating fluid 60fps keyframe transitions with custom cubic bezier curves and motion blur compensation.",
+            category = "Creative & Design",
+            tags = gson.toJson(listOf("aftereffects", "motion", "vfx", "animation")),
+            transcript = "[0:00] Stop using default easy-ease curves for fast transitions. [0:06] Open the speed graph and snap the outgoing tangent to 80 percent. [0:14] Turn on native motion blur and render in ProRes 422.",
+            originalTranscript = "[0:00] Agar aap default easy-ease use kar rahe ho to transition sluggish lagti hai. [0:06] Speed graph open karke outgoing tangent ko 80 percent push karo. [0:14] Motion blur enable karke ProRes 422 render nikalo.",
+            keyTakeaways = gson.toJson(listOf(
+                "Default Easy-Ease creates unnatural slow ramp; steepen curve to 80% for modern snap.",
+                "Shutter angle of 180 degrees ensures clean motion trails without stuttering.",
+                "Export master file in Apple ProRes 422 before uploading to social platforms."
+            )),
+            keyMoments = gson.toJson(listOf(
+                KeyMomentWithImage(6, "Speed graph custom cubic bezier curve", moment3_1.absolutePath),
+                KeyMomentWithImage(14, "Composition motion blur settings", moment3_2.absolutePath)
+            )),
+            structuredContent = gson.toJson(StructuredContent(
+                noteType = "recommendations",
+                items = listOf(
+                    "Switch keyframe interpolation from Bezier to Continuous Bezier (Ctrl+Shift+K)",
+                    "Set graph influence slider: Outgoing 82%, Incoming 18%",
+                    "Enable composition shutter phase at -90 degrees for symmetrical blur"
+                )
+            )),
+            extractedResources = gson.toJson(listOf(
+                ExtractedResource("Speed Curve Preset Pack", "", "Custom bezier animation presets (DM creator for link)"),
+                ExtractedResource("Adobe Motion Reference", "https://helpx.adobe.com/after-effects", "Official documentation for graph editor")
+            )),
+            caveats = gson.toJson(listOf(
+                "Requires After Effects 2024 or higher for updated graph editor handles",
+                "High GPU RAM usage when rendering multi-pass motion blur"
+            )),
+            useWhen = "Refining fast cinematic UI or promo video transitions.",
+            thumbnailPath = thumb3.absolutePath,
+            status = "TRIED",
+            processingState = "COMPLETED"
+        )
+
         db.reelDao().insert(reel1)
         db.reelDao().insert(reel2)
+        db.reelDao().insert(reel3)
         }
     }
 

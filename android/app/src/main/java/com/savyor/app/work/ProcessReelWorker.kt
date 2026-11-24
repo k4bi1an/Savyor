@@ -70,13 +70,15 @@ class ProcessReelWorker(
             // 3. Mark as ANALYZING
             reelDao.updateProcessingState(shortcode, "ANALYZING")
 
-            // 4. Load recent 5 category corrections for few-shot guidance
+            // 4. Load recent 5 category corrections and dynamic categories
             val recentCorrections = correctionDao.getRecentCorrections(5)
+            val availableCategories = db.categoryDao().getAllCategoriesList().map { it.name }
 
             // 5. Build prompt
             val prompt = GeminiPromptBuilder.buildSystemPrompt(
                 originalCaption = downloadResult.caption,
                 creatorHandle = creator,
+                availableCategories = availableCategories,
                 recentCorrections = recentCorrections
             )
 
@@ -88,6 +90,13 @@ class ProcessReelWorker(
                 videoFile = downloadedVideoFile,
                 prompt = prompt
             )
+
+            // Validate category against available list (fallback to "Other")
+            val validatedCategory = if (availableCategories.any { it.equals(analysis.category, ignoreCase = true) }) {
+                availableCategories.first { it.equals(analysis.category, ignoreCase = true) }
+            } else {
+                "Other"
+            }
 
             // 7. Extract thumbnail and key moment frames
             Log.i(TAG, "Extracting WebP frames via MediaMetadataRetriever...")
@@ -103,7 +112,7 @@ class ProcessReelWorker(
                 sourceLanguage = analysis.sourceLanguage,
                 title = analysis.title,
                 summary = analysis.summary,
-                category = analysis.category,
+                category = validatedCategory,
                 tags = gson.toJson(analysis.tags),
                 transcript = analysis.transcript,
                 originalTranscript = analysis.originalTranscript,
