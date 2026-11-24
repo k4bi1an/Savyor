@@ -65,6 +65,14 @@ processed_cards.json
 urls.txt
 hosting_test_results.json
 
+# Android build & local files
+.gradle/
+**/build/
+local.properties
+spikes/
+*.apk
+*.aab
+
 # Scratch workspace
 scratch/
 
