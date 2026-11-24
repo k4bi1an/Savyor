@@ -68,3 +68,12 @@ hosting_test_results.json
 # Scratch workspace
 scratch/
 
+# Android build and local properties
+.gradle/
+local.properties
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+
