@@ -22,13 +22,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var ytDlpManager: YtDlpManager
     private val results = mutableStateListOf<ReelTestResult>()
     private var isTesting by mutableStateOf(false)
+    private var isUpdating by mutableStateOf(false)
     private var statusMessage by mutableStateOf("Ready to test")
+    private var engineVersion by mutableStateOf("Checking...")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,8 +41,11 @@ class MainActivity : ComponentActivity() {
             Spike1Screen(
                 results = results,
                 isTesting = isTesting,
+                isUpdating = isUpdating,
                 statusMessage = statusMessage,
+                engineVersion = engineVersion,
                 onRunTest = { urls -> runTests(urls) },
+                onUpdateEngine = { triggerUpdate() },
                 onClearCache = {
                     val freed = ytDlpManager.clearCache()
                     statusMessage = "Cleared cache (${"%.2f".format(freed.toDouble() / (1024 * 1024))} MB)"
@@ -48,41 +54,78 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        // Handle test trigger via ADB intent
-        handleIntent(intent)
+        // Check/update yt-dlp on startup
+        triggerUpdate {
+            // Once updated or initialized, check incoming intent
+            handleIntent(intent)
+        }
     }
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
+        setIntent(intent)
+        Log.i("SpikeYtDlp", "onNewIntent received")
         intent?.let { handleIntent(it) }
+    }
+
+    private fun triggerUpdate(onComplete: (() -> Unit)? = null) {
+        if (isUpdating) return
+        isUpdating = true
+        statusMessage = "Checking/updating yt-dlp to latest release..."
+
+        lifecycleScope.launch {
+            try {
+                val (status, version) = ytDlpManager.updateEngine()
+                engineVersion = version
+                statusMessage = "yt-dlp $version ($status)"
+                Log.i("SpikeYtDlp", "Engine ready: version=$version status=$status")
+            } catch (e: Exception) {
+                statusMessage = "Engine update error: ${e.message}"
+                Log.e("SpikeYtDlp", "Engine update error", e)
+            } finally {
+                isUpdating = false
+                onComplete?.invoke()
+            }
+        }
     }
 
     private fun handleIntent(intent: Intent) {
         val testUrl = intent.getStringExtra("test_url")
         val testUrls = intent.getStringArrayListExtra("test_urls")
-        val urlsToTest = when {
+        val testUrlsCsv = intent.getStringExtra("test_urls_csv")
+        val filePath = intent.getStringExtra("urls_file")
+        Log.i("SpikeYtDlp", "handleIntent: testUrl=$testUrl testUrlsCsv=$testUrlsCsv isUpdating=$isUpdating isTesting=$isTesting")
+
+        val urlsToTest: List<String>? = when {
             !testUrls.isNullOrEmpty() -> testUrls
             !testUrl.isNullOrBlank() -> listOf(testUrl)
-            intent.getBooleanExtra("run_default_test", false) -> listOf(
-                "https://www.instagram.com/reel/Df-OIaqgGZy/",
-                "https://www.instagram.com/reel/DfBEEFBo52M/"
-            )
+            !testUrlsCsv.isNullOrBlank() -> testUrlsCsv.split(";").map { it.trim() }.filter { it.isNotEmpty() }
+            !filePath.isNullOrBlank() -> {
+                val file = File(filePath)
+                if (file.exists()) file.readLines().map { it.trim() }.filter { it.isNotEmpty() } else null
+            }
             else -> null
         }
 
-        if (urlsToTest != null) {
+        if (!urlsToTest.isNullOrEmpty()) {
             runTests(urlsToTest)
         }
     }
 
     private fun runTests(urls: List<String>) {
-        if (isTesting) return
+        if (isTesting) {
+            Log.w("SpikeYtDlp", "runTests skipped: already testing")
+            return
+        }
         isTesting = true
         results.clear()
-        statusMessage = "Initializing engine..."
+        statusMessage = "Preparing to test ${urls.size} reel(s)..."
 
         lifecycleScope.launch {
             try {
+                while (isUpdating) {
+                    kotlinx.coroutines.delay(200)
+                }
                 ytDlpManager.init()
                 urls.forEachIndexed { index, url ->
                     val cleanUrl = url.trim()
@@ -107,16 +150,14 @@ class MainActivity : ComponentActivity() {
 fun Spike1Screen(
     results: List<ReelTestResult>,
     isTesting: Boolean,
+    isUpdating: Boolean,
     statusMessage: String,
+    engineVersion: String,
     onRunTest: (List<String>) -> Unit,
+    onUpdateEngine: () -> Unit,
     onClearCache: () -> Unit
 ) {
-    var urlText by remember {
-        mutableStateOf(
-            "https://www.instagram.com/reel/Df-OIaqgGZy/\nhttps://www.instagram.com/reel/DfBEEFBo52M/"
-        )
-    }
-
+    var urlText by remember { mutableStateOf("") }
     val primaryAbi = Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"
 
     Surface(
@@ -144,7 +185,10 @@ fun Spike1Screen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Device Info Badges
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 AssistChip(
                     onClick = {},
                     label = { Text("ABI: $primaryAbi", fontSize = 11.sp) }
@@ -152,6 +196,10 @@ fun Spike1Screen(
                 AssistChip(
                     onClick = {},
                     label = { Text("Device: ${Build.MODEL}", fontSize = 11.sp) }
+                )
+                AssistChip(
+                    onClick = {},
+                    label = { Text("yt-dlp: $engineVersion", fontSize = 11.sp) }
                 )
             }
 
@@ -162,6 +210,7 @@ fun Spike1Screen(
                 value = urlText,
                 onValueChange = { urlText = it },
                 label = { Text("Instagram Reel URLs (one per line)") },
+                placeholder = { Text("Paste Instagram URLs or trigger via ADB") },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(110.dp),
@@ -181,8 +230,8 @@ fun Spike1Screen(
                         val urls = urlText.lines().map { it.trim() }.filter { it.isNotEmpty() }
                         onRunTest(urls)
                     },
-                    modifier = Modifier.weight(1f),
-                    enabled = !isTesting && urlText.isNotBlank(),
+                    modifier = Modifier.weight(1.2f),
+                    enabled = !isTesting && !isUpdating && urlText.isNotBlank(),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2F5D50))
                 ) {
                     if (isTesting) {
@@ -197,10 +246,26 @@ fun Spike1Screen(
                 }
 
                 OutlinedButton(
-                    onClick = onClearCache,
-                    enabled = !isTesting
+                    onClick = onUpdateEngine,
+                    modifier = Modifier.weight(1f),
+                    enabled = !isTesting && !isUpdating
                 ) {
-                    Text("Clear Cache")
+                    if (isUpdating) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            color = Color(0xFF2F5D50),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text("Update", fontSize = 12.sp)
+                }
+
+                OutlinedButton(
+                    onClick = onClearCache,
+                    enabled = !isTesting && !isUpdating
+                ) {
+                    Text("Clear", fontSize = 12.sp)
                 }
             }
 
@@ -239,11 +304,17 @@ fun Spike1Screen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                val statusText = when {
+                                    res.success && res.hasVideoTrack && res.hasAudioTrack -> "PASS (Video + Audio)"
+                                    res.success && res.hasVideoTrack -> "PASS (Video Only)"
+                                    res.success -> "PASS"
+                                    else -> "FAIL (${res.errorCategory})"
+                                }
                                 Text(
-                                    text = if (res.success) "PASS" else "FAIL (${res.errorCategory})",
+                                    text = statusText,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (res.success) Color(0xFF2F5D50) else Color(0xFFB3382C)
+                                    color = if (res.success && res.hasVideoTrack && res.hasAudioTrack) Color(0xFF2F5D50) else Color(0xFFB3382C)
                                 )
                                 Text(
                                     text = "${res.durationMs} ms",
