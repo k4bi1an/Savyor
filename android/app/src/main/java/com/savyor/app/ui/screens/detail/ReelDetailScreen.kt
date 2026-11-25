@@ -639,8 +639,6 @@ fun ReelDetailScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
         ) {
             val editBarShape = RoundedCornerShape(26.dp)
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -658,6 +656,8 @@ fun ReelDetailScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(colors.bgCanvas)
+                        .imePadding()
+                        .navigationBarsPadding()
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Row(
