@@ -37,6 +37,10 @@ class EncryptedSettingsManager(private val context: Context) {
         private const val KEY_LIBRARY_VIEW_MODE = "library_view_mode"
         private const val KEY_LIBRARY_SORT_ORDER = "library_sort_order"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_YTDLP_INSTALLED_VERSION = "ytdlp_installed_version"
+        private const val KEY_YTDLP_LATEST_VERSION = "ytdlp_latest_version"
+        private const val KEY_YTDLP_LAST_CHECKED_EPOCH_MS = "ytdlp_last_checked_epoch_ms"
+        private const val KEY_YTDLP_UPDATE_STATUS = "ytdlp_update_status"
     }
 
     var geminiApiKey: String
@@ -74,6 +78,22 @@ class EncryptedSettingsManager(private val context: Context) {
     var themeMode: String
         get() = prefs.getString(KEY_THEME_MODE, "SYSTEM") ?: "SYSTEM"
         set(value) = prefs.edit().putString(KEY_THEME_MODE, value).apply()
+
+    var ytDlpInstalledVersion: String
+        get() = prefs.getString(KEY_YTDLP_INSTALLED_VERSION, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_YTDLP_INSTALLED_VERSION, value).apply()
+
+    var ytDlpLatestVersion: String
+        get() = prefs.getString(KEY_YTDLP_LATEST_VERSION, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_YTDLP_LATEST_VERSION, value).apply()
+
+    var ytDlpLastCheckedEpochMs: Long
+        get() = prefs.getLong(KEY_YTDLP_LAST_CHECKED_EPOCH_MS, 0L)
+        set(value) = prefs.edit().putLong(KEY_YTDLP_LAST_CHECKED_EPOCH_MS, value).apply()
+
+    var ytDlpUpdateStatus: String
+        get() = prefs.getString(KEY_YTDLP_UPDATE_STATUS, "UNKNOWN") ?: "UNKNOWN"
+        set(value) = prefs.edit().putString(KEY_YTDLP_UPDATE_STATUS, value).apply()
 
     fun isApiKeyConfigured(): Boolean = geminiApiKey.isNotBlank()
 

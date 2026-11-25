@@ -8,7 +8,10 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 data class ReelDownloadResult(
     val videoFile: File,
@@ -43,6 +46,10 @@ class YtDlpEngine(private val context: Context) : IReelDownloader {
         try {
             val status = YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel.STABLE)
             val afterVersion = YoutubeDL.getInstance().version(context.applicationContext) ?: beforeVersion
+            settings.ytDlpInstalledVersion = afterVersion
+            settings.ytDlpLatestVersion = afterVersion
+            settings.ytDlpLastCheckedEpochMs = System.currentTimeMillis()
+            settings.ytDlpUpdateStatus = "UP_TO_DATE"
             Log.i("YtDlpEngine", "yt-dlp update status: $status, version: $afterVersion")
             Pair(status?.name ?: "UNKNOWN", afterVersion)
         } catch (e: Exception) {
@@ -54,7 +61,58 @@ class YtDlpEngine(private val context: Context) : IReelDownloader {
 
     override suspend fun getEngineVersion(): String = withContext(Dispatchers.IO) {
         init()
-        YoutubeDL.getInstance().version(context.applicationContext) ?: "unknown"
+        val version = YoutubeDL.getInstance().version(context.applicationContext) ?: "unknown"
+        if (version != "unknown") {
+            EncryptedSettingsManager(context.applicationContext).ytDlpInstalledVersion = version
+        }
+        version
+    }
+
+    /**
+     * Checks GitHub latest release tag against installed yt-dlp version,
+     * throttled to once every 6 hours unless [force] is true. Fails silently offline.
+     */
+    suspend fun refreshUpdateStatusIfNeeded(force: Boolean = false) = withContext(Dispatchers.IO) {
+        val settings = EncryptedSettingsManager(context.applicationContext)
+        val sixHoursMs = 6L * 3600L * 1000L
+        val now = System.currentTimeMillis()
+        if (!force && (now - settings.ytDlpLastCheckedEpochMs) < sixHoursMs && settings.ytDlpUpdateStatus != "UNKNOWN") {
+            return@withContext
+        }
+        try {
+            val installed = getEngineVersion()
+            settings.ytDlpInstalledVersion = installed
+            val latest = fetchLatestGitHubVersion()
+            settings.ytDlpLastCheckedEpochMs = System.currentTimeMillis()
+            if (latest != null && installed != "unknown") {
+                settings.ytDlpLatestVersion = latest
+                val cleanInstalled = installed.trim().removePrefix("v")
+                val cleanLatest = latest.trim().removePrefix("v")
+                settings.ytDlpUpdateStatus = if (cleanInstalled == cleanLatest) "UP_TO_DATE" else "UPDATE_AVAILABLE"
+            } else if (installed != "unknown") {
+                settings.ytDlpUpdateStatus = "UNKNOWN"
+            }
+        } catch (e: Exception) {
+            Log.w("YtDlpEngine", "yt-dlp release check failed silently: ${e.message}")
+        }
+    }
+
+    private fun fetchLatestGitHubVersion(): String? {
+        val http = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+        val req = Request.Builder()
+            .url("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
+            .header("Accept", "application/vnd.github+json")
+            .get()
+            .build()
+        http.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            val body = resp.body?.string().orEmpty()
+            val obj = JsonParser.parseString(body).asJsonObject
+            return obj.get("tag_name")?.asString
+        }
     }
 
     override suspend fun downloadReel(url: String, shortcode: String): ReelDownloadResult = withContext(Dispatchers.IO) {
@@ -107,10 +165,10 @@ class YtDlpEngine(private val context: Context) : IReelDownloader {
             Log.w("YtDlpEngine", "Metadata fetch non-fatal error: ${e.message}")
         }
 
-        // Download video capped to 720p progressive MP4
+        // Download compact single-file MP4 (<= 480p preferred for low-latency Gemini upload, 720p fallback)
         val request = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
-            addOption("-f", "best[height<=720][ext=mp4]/best[ext=mp4]/best")
+            addOption("-f", "best[height<=480][ext=mp4]/best[height<=720][ext=mp4]/best[ext=mp4]/best")
             addOption("-o", outputTemplate)
             addOption("--socket-timeout", "30")
             addOption("--add-header", "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")

@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -43,12 +44,16 @@ fun SettingsScreen(
     val maskedApiKey by viewModel.maskedApiKey.collectAsState()
     val isWifiOnly by viewModel.isWifiOnly.collectAsState()
     val ytDlpVersion by viewModel.ytDlpVersion.collectAsState()
+    val ytDlpLatestVersion by viewModel.ytDlpLatestVersion.collectAsState()
+    val ytDlpUpdateStatus by viewModel.ytDlpUpdateStatus.collectAsState()
+    val ytDlpLastCheckedMs by viewModel.ytDlpLastCheckedMs.collectAsState()
     val isUpdatingEngine by viewModel.isUpdatingEngine.collectAsState()
     val isTestingConnection by viewModel.isTestingConnection.collectAsState()
     val connectionStatus by viewModel.connectionTestStatus.collectAsState()
     val storageStats by viewModel.storageStats.collectAsState()
     val isBackingUp by viewModel.isBackingUp.collectAsState()
     val isRestoring by viewModel.isRestoring.collectAsState()
+    val isExportingTelemetry by viewModel.isExportingTelemetry.collectAsState()
     val lastBackupMs by viewModel.lastBackupMs.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
 
@@ -76,6 +81,15 @@ fun SettingsScreen(
         if (uri != null) {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             viewModel.importBackup(uri)
+        }
+    }
+
+    val exportTelemetryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            viewModel.exportTelemetry(uri)
         }
     }
 
@@ -331,13 +345,55 @@ fun SettingsScreen(
                                     fontSize = 14.sp,
                                     color = colors.inkPrimary
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    ytDlpVersion,
-                                    fontFamily = SavyorMonoFamily,
-                                    fontSize = 12.sp,
-                                    color = colors.inkSecondary
-                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        ytDlpVersion,
+                                        fontFamily = SavyorMonoFamily,
+                                        fontSize = 12.sp,
+                                        color = colors.inkSecondary
+                                    )
+                                    val (badgeText, badgeFg, badgeBg) = when (ytDlpUpdateStatus) {
+                                        "UP_TO_DATE" -> Triple("Up to date", colors.triedFg, colors.triedBg)
+                                        "UPDATE_AVAILABLE" -> Triple(
+                                            if (ytDlpLatestVersion.isNotBlank()) "Update available ($ytDlpLatestVersion)" else "Update available",
+                                            colors.reviewedFg,
+                                            colors.reviewedBg
+                                        )
+                                        "CHECKING" -> Triple("Checking...", colors.unreadFg, colors.unreadBg)
+                                        else -> Triple("Unknown", colors.inkMuted, colors.surfaceRecessed)
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = badgeBg
+                                    ) {
+                                        Text(
+                                            text = badgeText,
+                                            fontFamily = SavyorMonoFamily,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = badgeFg,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                if (ytDlpLastCheckedMs > 0L) {
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    val rel = DateUtils.getRelativeTimeSpanString(
+                                        ytDlpLastCheckedMs,
+                                        System.currentTimeMillis(),
+                                        DateUtils.MINUTE_IN_MILLIS
+                                    )
+                                    Text(
+                                        text = "Last checked: $rel",
+                                        fontFamily = SavyorSansFamily,
+                                        fontSize = 11.sp,
+                                        color = colors.inkMuted
+                                    )
+                                }
                             }
                             OutlinedButton(
                                 onClick = { viewModel.updateYtDlpEngine() },
@@ -522,6 +578,48 @@ fun SettingsScreen(
                                     Spacer(modifier = Modifier.width(4.dp))
                                 }
                                 Text("Restore", fontFamily = SavyorSansFamily, fontSize = 12.sp, color = colors.inkPrimary)
+                            }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 12.dp),
+                            color = colors.borderSubtle,
+                            thickness = 1.dp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(
+                                    "Export Processing Telemetry (.json)",
+                                    fontFamily = SavyorSansFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = colors.inkPrimary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    "Export device specs, average stage latencies, and per-reel metrics",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.inkSecondary
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    exportTelemetryLauncher.launch("savyor-telemetry-${System.currentTimeMillis()}.json")
+                                },
+                                enabled = !isExportingTelemetry,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, colors.borderSubtle)
+                            ) {
+                                if (isExportingTelemetry) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.inkPrimary)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                Text("Export", fontFamily = SavyorSansFamily, fontSize = 12.sp, color = colors.inkPrimary)
                             }
                         }
                     }

@@ -10,12 +10,14 @@ data class KeyMomentAnalysis(
 )
 
 data class ExtractedResource(
-    @SerializedName("name")
+    @SerializedName(value = "name", alternate = ["title"])
     val name: String,
     @SerializedName("url")
     val url: String = "",
     @SerializedName("description")
-    val description: String = ""
+    val description: String = "",
+    @SerializedName("kind")
+    val kind: String = "DIRECT" // REPO, DIRECT, OFFICIAL, SEARCH
 )
 
 data class RecipeIngredient(
@@ -100,7 +102,7 @@ data class GeminiReelAnalysis(
     @SerializedName("key_moments")
     val keyMoments: List<KeyMomentAnalysis> = emptyList(),
 
-    @SerializedName("extracted_resources")
+    @SerializedName(value = "extracted_resources", alternate = ["links"])
     val extractedResources: List<ExtractedResource> = emptyList(),
 
     @SerializedName("structured_content")

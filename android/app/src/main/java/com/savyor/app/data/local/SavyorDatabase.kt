@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
         CategoryEntity::class,
         CategoryCorrectionEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class SavyorDatabase : RoomDatabase() {
@@ -81,6 +81,22 @@ abstract class SavyorDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `yt_dlp_duration_ms` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `frame_extract_duration_ms` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `ai_analysis_duration_ms` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `total_processing_duration_ms` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `video_duration_sec` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `downloaded_video_bytes` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `cover_size_bytes` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `frames_extracted_count` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `links_extracted_count` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `ai_model_used` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `processing_error` TEXT DEFAULT NULL")
+            }
+        }
+
         fun getInstance(context: Context): SavyorDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -88,7 +104,7 @@ abstract class SavyorDatabase : RoomDatabase() {
                     SavyorDatabase::class.java,
                     "savyor.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

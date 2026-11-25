@@ -3,6 +3,9 @@ package com.savyor.app.ui.screens.library
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import coil.Coil
 import com.savyor.app.data.local.EncryptedSettingsManager
 import com.savyor.app.data.local.FtsQuerySanitizer
 import com.savyor.app.data.local.SavyorDatabase
@@ -10,9 +13,15 @@ import com.savyor.app.data.local.entity.CategoryEntity
 import com.savyor.app.data.local.entity.ReelEntity
 import com.savyor.app.work.EnqueueResult
 import com.savyor.app.work.WorkManagerScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 enum class ViewMode {
     GRID, LIST, COMPACT;
@@ -35,6 +44,68 @@ enum class SortOrder(val label: String) {
 
     companion object {
         fun fromString(raw: String): SortOrder = entries.firstOrNull { it.name == raw } ?: NEWEST
+    }
+}
+
+sealed class DateFilter {
+    data object AnyTime : DateFilter()
+    data object Today : DateFilter()
+    data object Last7Days : DateFilter()
+    data object Last30Days : DateFilter()
+    data class SingleDay(val epochMillis: Long) : DateFilter()
+    data class Range(val startMillis: Long, val endMillis: Long) : DateFilter()
+
+    fun displayLabel(): String {
+        val fmt = DateTimeFormatter.ofPattern("MMM d, yyyy")
+        val shortFmt = DateTimeFormatter.ofPattern("MMM d")
+        val zone = ZoneId.systemDefault()
+        return when (this) {
+            AnyTime -> "Any Time"
+            Today -> "Today"
+            Last7Days -> "Last 7 Days"
+            Last30Days -> "Last 30 Days"
+            is SingleDay -> Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate().format(fmt)
+            is Range -> {
+                val s = Instant.ofEpochMilli(startMillis).atZone(zone).toLocalDate().format(shortFmt)
+                val e = Instant.ofEpochMilli(endMillis).atZone(zone).toLocalDate().format(shortFmt)
+                "$s \u2013 $e"
+            }
+        }
+    }
+
+    fun matches(createdAtMillis: Long): Boolean {
+        if (this is AnyTime) return true
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        return when (this) {
+            AnyTime -> true
+            Today -> {
+                val start = today.atStartOfDay(zone).toInstant().toEpochMilli()
+                val end = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+                createdAtMillis in start..end
+            }
+            Last7Days -> {
+                val start = today.minusDays(6).atStartOfDay(zone).toInstant().toEpochMilli()
+                createdAtMillis >= start
+            }
+            Last30Days -> {
+                val start = today.minusDays(29).atStartOfDay(zone).toInstant().toEpochMilli()
+                createdAtMillis >= start
+            }
+            is SingleDay -> {
+                val date = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.of("UTC")).toLocalDate()
+                val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
+                val end = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+                createdAtMillis in start..end
+            }
+            is Range -> {
+                val sDate = Instant.ofEpochMilli(startMillis).atZone(ZoneId.of("UTC")).toLocalDate()
+                val eDate = Instant.ofEpochMilli(endMillis).atZone(ZoneId.of("UTC")).toLocalDate()
+                val start = minOf(sDate, eDate).atStartOfDay(zone).toInstant().toEpochMilli()
+                val end = maxOf(sDate, eDate).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+                createdAtMillis in start..end
+            }
+        }
     }
 }
 
@@ -70,6 +141,14 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _sortOrder = MutableStateFlow(SortOrder.fromString(settings.librarySortOrder))
     val sortOrder: StateFlow<SortOrder> = _sortOrder.asStateFlow()
 
+    private val _dateFilter = MutableStateFlow<DateFilter>(DateFilter.AnyTime)
+    val dateFilter: StateFlow<DateFilter> = _dateFilter.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    private val _refreshTrigger = MutableStateFlow(0L)
+
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage: SharedFlow<String> = _snackbarMessage.asSharedFlow()
 
@@ -78,7 +157,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         val status: String,
         val query: String,
         val starredOnly: Boolean,
-        val sortOrder: SortOrder
+        val sortOrder: SortOrder,
+        val dateFilter: DateFilter,
+        val refreshTick: Long
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -87,9 +168,19 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _selectedStatus,
         _searchQuery,
         _starredOnly,
-        _sortOrder
-    ) { category, status, query, starredOnly, sortOrder ->
-        FilterState(category, status, query, starredOnly, sortOrder)
+        _sortOrder,
+        _dateFilter,
+        _refreshTrigger
+    ) { values ->
+        FilterState(
+            category = values[0] as String,
+            status = values[1] as String,
+            query = values[2] as String,
+            starredOnly = values[3] as Boolean,
+            sortOrder = values[4] as SortOrder,
+            dateFilter = values[5] as DateFilter,
+            refreshTick = values[6] as Long
+        )
     }.flatMapLatest { state ->
         val baseFlow = when {
             state.query.isNotBlank() -> {
@@ -113,7 +204,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 val matchesStar = !state.starredOnly || reel.isStarred
                 val matchesCat = state.query.isBlank() || state.category == "All" || reel.category == state.category
                 val matchesStatus = state.query.isBlank() || state.status == "All" || reel.status == state.status
-                matchesStar && matchesCat && matchesStatus
+                val matchesDate = state.dateFilter.matches(reel.createdAt)
+                matchesStar && matchesCat && matchesStatus && matchesDate
             }
             when (state.sortOrder) {
                 SortOrder.NEWEST -> filtered.sortedByDescending { it.createdAt }
@@ -139,11 +231,67 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _searchQuery.value = query
     }
 
+    fun setDateFilter(filter: DateFilter) {
+        _dateFilter.value = filter
+    }
+
     fun clearAllFilters() {
         _searchQuery.value = ""
         _selectedCategory.value = "All"
         _selectedStatus.value = "All"
         _starredOnly.value = false
+        _dateFilter.value = DateFilter.AnyTime
+    }
+
+    fun refreshLibrary() {
+        if (_isRefreshing.value) return
+        _isRefreshing.value = true
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    // 1. Reconcile any stalled PROCESSING jobs with WorkManager
+                    val app = getApplication<Application>()
+                    val workManager = WorkManager.getInstance(app)
+                    val activeReels = reelDao.getActiveProcessingReelsOnce()
+                    activeReels.forEach { reel ->
+                        val infos = runCatching {
+                            workManager.getWorkInfosForUniqueWork("process_reel_${reel.shortcode}").get()
+                        }.getOrDefault(emptyList())
+                        val hasLiveWork = infos.any { info ->
+                            info.state == WorkInfo.State.ENQUEUED ||
+                                info.state == WorkInfo.State.RUNNING ||
+                                info.state == WorkInfo.State.BLOCKED
+                        }
+                        if (!hasLiveWork) {
+                            reelDao.updateProcessingAndStatus(
+                                shortcode = reel.shortcode,
+                                state = "FAILED",
+                                status = "FAILED",
+                                errorMessage = "Processing job was interrupted. Tap Retry to re-run."
+                            )
+                        }
+                    }
+
+                    // 2. Clear stale Coil memory cache entries for newly generated thumbnails
+                    runCatching {
+                        Coil.imageLoader(app).memoryCache?.clear()
+                    }
+                }
+                _refreshTrigger.value = System.currentTimeMillis()
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun retryReel(url: String) {
+        viewModelScope.launch {
+            when (val res = scheduler.enqueueReel(url, forceReanalyze = true)) {
+                is EnqueueResult.Success -> _snackbarMessage.emit("Retrying reel analysis...")
+                is EnqueueResult.InvalidUrl -> _snackbarMessage.emit(res.message)
+                is EnqueueResult.Error -> _snackbarMessage.emit("Retry failed: ${res.message}")
+            }
+        }
     }
 
     fun toggleViewMode() {

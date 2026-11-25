@@ -35,12 +35,16 @@ class SavyorApplication : Application() {
                 SnapshotCacheManager.enforceSnapshotLruCap(filesDir)
 
                 val settings = EncryptedSettingsManager(this@SavyorApplication)
+                val engine = YtDlpEngine(this@SavyorApplication)
+
+                // Check yt-dlp update status on cold start (6h throttled, silent offline)
+                engine.refreshUpdateStatusIfNeeded(force = false)
+
                 val sevenDaysMs = 7L * 24L * 3600L * 1000L
                 val isUpdateStale = !settings.isFirstRunDone ||
                     (System.currentTimeMillis() - settings.lastYtDlpUpdateCheckMs > sevenDaysMs)
 
                 if (settings.autoUpdateYtDlp && isUpdateStale && isOnUnmeteredWifi(this@SavyorApplication)) {
-                    val engine = YtDlpEngine(this@SavyorApplication)
                     val (status, version) = engine.updateEngine()
                     Log.i("SavyorApp", "Smart Wi-Fi yt-dlp update complete: status=$status version=$version")
                     settings.isFirstRunDone = true

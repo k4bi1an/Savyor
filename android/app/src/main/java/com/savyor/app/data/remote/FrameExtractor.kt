@@ -4,17 +4,18 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.MediaMetadataRetriever
-import android.os.Build
 import android.util.Log
 import com.savyor.app.domain.model.KeyMomentAnalysis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
+import kotlin.math.abs
 
 data class ExtractedFramesResult(
     val thumbnailPath: String?,
-    val keyMomentsWithImages: List<KeyMomentWithImage>
+    val keyMomentsWithImages: List<KeyMomentWithImage>,
+    val videoDurationSec: Int = 0,
+    val coverSizeBytes: Long = 0L
 )
 
 data class KeyMomentWithImage(
@@ -36,6 +37,22 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
     companion object {
         private const val TAG = "FrameExtractor"
         private const val DARK_LUMA_THRESHOLD = 22.0
+        private const val BRIGHT_LUMA_THRESHOLD = 242.0
+        private const val MIN_LUMA_VARIANCE = 140.0
+        private const val DUPLICATE_MAD_THRESHOLD = 8.0
+    }
+
+    fun readVideoDurationSec(videoFile: File): Int {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(videoFile.absolutePath)
+            val ms = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            (ms / 1000L).toInt().coerceAtLeast(1)
+        } catch (_: Exception) {
+            0
+        } finally {
+            runCatching { retriever.release() }
+        }
     }
 
     override suspend fun extractFrames(
@@ -47,55 +64,82 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
         val retriever = MediaMetadataRetriever()
 
         var thumbnailPath: String? = null
+        var coverSizeBytes = 0L
+        var durationSec = 0
         val momentsWithImages = mutableListOf<KeyMomentWithImage>()
+        val savedSignatures = mutableListOf<IntArray>()
 
         try {
             retriever.setDataSource(videoFile.absolutePath)
             val durationMsStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
             val durationMs = (durationMsStr?.toLongOrNull() ?: 10_000L).coerceAtLeast(500L)
             val durationUs = durationMs * 1000L
+            durationSec = (durationMs / 1000L).toInt().coerceAtLeast(1)
 
-            // 1. Extract cover thumbnail: skip 0.0s black fade-in; sample 1.0s (or first key moment / midpoint if short or too dark)
+            // 1. Extract cover thumbnail (540px max width, quality 78 WebP)
             val thumbRaw = extractBestCoverFrame(retriever, durationMs, durationUs, keyMoments)
             if (thumbRaw != null) {
-                val thumbScaled = scaleBitmapToWidth(thumbRaw, 480)
                 val thumbFile = File(outputDir, "thumb.webp")
-                saveBitmapAsWebp(thumbScaled, thumbFile)
+                coverSizeBytes = ImageCompressor.saveOptimizedWebp(
+                    bitmap = thumbRaw,
+                    outFile = thumbFile,
+                    maxWidthPx = 540,
+                    quality = 78
+                )
                 thumbnailPath = thumbFile.absolutePath
                 thumbRaw.recycle()
-                if (thumbScaled != thumbRaw) thumbScaled.recycle()
             }
 
-            // 2. Extract up to 4 key-moment frames at 640px
-            val momentsToExtract = keyMoments.take(4)
+            // 2. Extract up to 5 key-moment frames (720px max width, quality 80 WebP)
+            //    with blank-frame nudge (+/-400ms) and 16x16 MAD duplicate filtering.
+            val momentsToExtract = keyMoments.take(5)
             momentsToExtract.forEachIndexed { index, moment ->
                 val rawTimeUs = (moment.timestampSec.toLong() * 1_000_000L)
                     .coerceIn(0L, (durationUs - 100_000L).coerceAtLeast(0L))
-                val frameRaw = getFrameAtExactOrSync(retriever, rawTimeUs)
+                val frameRaw = extractNonBlankMomentFrame(retriever, rawTimeUs, durationUs)
                 if (frameRaw != null) {
-                    val frameScaled = scaleBitmapToWidth(frameRaw, 640)
-                    val frameFile = File(outputDir, "moment_${index}_${moment.timestampSec}s.webp")
-                    saveBitmapAsWebp(frameScaled, frameFile)
-                    momentsWithImages.add(
-                        KeyMomentWithImage(
-                            timestampSec = moment.timestampSec,
-                            label = moment.label,
-                            webpPath = frameFile.absolutePath
+                    val signature = compute16x16LumaSignature(frameRaw)
+                    val isDuplicate = savedSignatures.any { prev ->
+                        meanAbsoluteDifference(prev, signature) < DUPLICATE_MAD_THRESHOLD
+                    }
+                    if (!isDuplicate) {
+                        savedSignatures.add(signature)
+                        val frameFile = File(outputDir, "moment_${index}_${moment.timestampSec}s.webp")
+                        ImageCompressor.saveOptimizedWebp(
+                            bitmap = frameRaw,
+                            outFile = frameFile,
+                            maxWidthPx = 720,
+                            quality = 80
                         )
-                    )
+                        momentsWithImages.add(
+                            KeyMomentWithImage(
+                                timestampSec = moment.timestampSec,
+                                label = moment.label,
+                                webpPath = frameFile.absolutePath
+                            )
+                        )
+                    } else {
+                        Log.d(TAG, "Skipped near-duplicate visual moment at ${moment.timestampSec}s for $shortcode")
+                    }
                     frameRaw.recycle()
-                    if (frameScaled != frameRaw) frameScaled.recycle()
                 }
             }
 
-            Log.i(TAG, "Extracted ${momentsWithImages.size} key moment frames + thumb for $shortcode")
+            Log.i(TAG, "Extracted ${momentsWithImages.size} key moment frames + thumb (${coverSizeBytes}B) for $shortcode")
             ExtractedFramesResult(
                 thumbnailPath = thumbnailPath,
-                keyMomentsWithImages = momentsWithImages
+                keyMomentsWithImages = momentsWithImages,
+                videoDurationSec = durationSec,
+                coverSizeBytes = coverSizeBytes
             )
         } catch (e: Exception) {
             Log.e(TAG, "Frame extraction error for $shortcode: ${e.message}", e)
-            ExtractedFramesResult(thumbnailPath = null, keyMomentsWithImages = emptyList())
+            ExtractedFramesResult(
+                thumbnailPath = null,
+                keyMomentsWithImages = emptyList(),
+                videoDurationSec = durationSec,
+                coverSizeBytes = 0L
+            )
         } finally {
             try {
                 retriever.release()
@@ -111,25 +155,21 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
         durationUs: Long,
         keyMoments: List<KeyMomentAnalysis>
     ): Bitmap? {
+        val primaryUs = minOf(1_500_000L, (durationUs * 15L) / 100L).coerceAtLeast(250_000L)
         val candidatesUs = buildList {
-            // Primary target: 1.0s if video is long enough, else midpoint
-            if (durationMs >= 1_500L) {
-                add(1_000_000L)
-            } else {
-                add((durationUs / 2L).coerceAtLeast(100_000L))
-            }
-            // Fallback 1: first AI-identified key moment (> 0s)
+            add(primaryUs)
+            add(500_000L.coerceAtMost(durationUs))
+            if (durationMs >= 3_000L) add(3_000_000L)
             keyMoments.firstOrNull { it.timestampSec > 0 }?.let { firstMoment ->
                 add((firstMoment.timestampSec.toLong() * 1_000_000L).coerceIn(0L, durationUs))
             }
-            // Fallback 2: ~35% into video
             add((durationUs * 35L) / 100L)
         }.distinct()
 
         var fallbackBitmap: Bitmap? = null
         for (timeUs in candidatesUs) {
             val frame = getFrameAtExactOrSync(retriever, timeUs) ?: continue
-            if (!isFrameTooDark(frame)) {
+            if (!isBlankOrLowVarianceFrame(frame)) {
                 fallbackBitmap?.recycle()
                 return frame
             }
@@ -142,52 +182,78 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
         return fallbackBitmap
     }
 
+    private fun extractNonBlankMomentFrame(
+        retriever: MediaMetadataRetriever,
+        targetTimeUs: Long,
+        durationUs: Long
+    ): Bitmap? {
+        val offsetsUs = listOf(0L, 400_000L, -400_000L)
+        var fallback: Bitmap? = null
+        for (offset in offsetsUs) {
+            val candidateUs = (targetTimeUs + offset).coerceIn(0L, (durationUs - 100_000L).coerceAtLeast(0L))
+            val frame = getFrameAtExactOrSync(retriever, candidateUs) ?: continue
+            if (!isBlankOrLowVarianceFrame(frame)) {
+                fallback?.recycle()
+                return frame
+            }
+            if (fallback == null) {
+                fallback = frame
+            } else {
+                frame.recycle()
+            }
+        }
+        return fallback
+    }
+
     private fun getFrameAtExactOrSync(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? {
         return retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
             ?: retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
     }
 
-    private fun isFrameTooDark(bitmap: Bitmap): Boolean {
-        val w = bitmap.width
-        val h = bitmap.height
-        if (w <= 0 || h <= 0) return true
-
-        val grid = 12
-        var totalLuma = 0.0
-        var samples = 0
-        for (gx in 1 until grid) {
-            val x = (w * gx) / grid
-            for (gy in 1 until grid) {
-                val y = (h * gy) / grid
-                val pixel = bitmap.getPixel(x, y)
-                val r = Color.red(pixel)
-                val g = Color.green(pixel)
-                val b = Color.blue(pixel)
-                totalLuma += 0.299 * r + 0.587 * g + 0.114 * b
-                samples++
+    private fun isBlankOrLowVarianceFrame(bitmap: Bitmap): Boolean {
+        val sample = Bitmap.createScaledBitmap(bitmap, 32, 32, false)
+        try {
+            var sum = 0.0
+            var sumSq = 0.0
+            val n = 32 * 32
+            for (y in 0 until 32) {
+                for (x in 0 until 32) {
+                    val pixel = sample.getPixel(x, y)
+                    val luma = 0.299 * Color.red(pixel) + 0.587 * Color.green(pixel) + 0.114 * Color.blue(pixel)
+                    sum += luma
+                    sumSq += luma * luma
+                }
             }
+            val mean = sum / n
+            val variance = (sumSq / n) - (mean * mean)
+            return mean < DARK_LUMA_THRESHOLD || mean > BRIGHT_LUMA_THRESHOLD || variance < MIN_LUMA_VARIANCE
+        } finally {
+            if (sample !== bitmap) sample.recycle()
         }
-        val avgLuma = if (samples > 0) totalLuma / samples else 0.0
-        return avgLuma < DARK_LUMA_THRESHOLD
     }
 
-    private fun scaleBitmapToWidth(bitmap: Bitmap, targetWidth: Int): Bitmap {
-        if (bitmap.width <= targetWidth) return bitmap
-        val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
-        val targetHeight = (targetWidth * aspectRatio).toInt()
-        return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+    private fun compute16x16LumaSignature(bitmap: Bitmap): IntArray {
+        val sample = Bitmap.createScaledBitmap(bitmap, 16, 16, false)
+        val sig = IntArray(256)
+        try {
+            var idx = 0
+            for (y in 0 until 16) {
+                for (x in 0 until 16) {
+                    val p = sample.getPixel(x, y)
+                    sig[idx++] = (0.299 * Color.red(p) + 0.587 * Color.green(p) + 0.114 * Color.blue(p)).toInt()
+                }
+            }
+        } finally {
+            if (sample !== bitmap) sample.recycle()
+        }
+        return sig
     }
 
-    private fun saveBitmapAsWebp(bitmap: Bitmap, file: File) {
-        val fos = FileOutputStream(file)
-        val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Bitmap.CompressFormat.WEBP_LOSSY
-        } else {
-            @Suppress("DEPRECATION")
-            Bitmap.CompressFormat.WEBP
+    private fun meanAbsoluteDifference(a: IntArray, b: IntArray): Double {
+        var total = 0L
+        for (i in a.indices) {
+            total += abs(a[i] - b[i])
         }
-        bitmap.compress(format, 82, fos)
-        fos.flush()
-        fos.close()
+        return total.toDouble() / a.size.toDouble()
     }
 }

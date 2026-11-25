@@ -56,6 +56,7 @@ class WorkManagerScheduler(private val context: Context) {
                     originalUrl = sharedText.trim(),
                     cleanUrl = cleanUrl,
                     title = "Processing reel @$shortcode...",
+                    status = "PROCESSING",
                     processingState = "QUEUED",
                     createdAt = System.currentTimeMillis()
                 )
@@ -66,7 +67,7 @@ class WorkManagerScheduler(private val context: Context) {
                 Log.i(TAG, "Reel $shortcode is already processed and saved")
                 return@withContext EnqueueResult.Success(shortcode, isNew = false)
             } else {
-                reelDao.updateProcessingState(shortcode, "QUEUED", null)
+                reelDao.updateProcessingAndStatus(shortcode, "QUEUED", "PROCESSING", null)
                 Log.i(TAG, "Resetting reel $shortcode to QUEUED (forceReanalyze=$forceReanalyze)")
             }
 

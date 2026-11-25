@@ -110,6 +110,19 @@ fun ReelDetailScreen(
     var myNoteDraft by remember(currentReel.userNote) { mutableStateOf(currentReel.userNote) }
     val gson = remember { Gson() }
 
+    // Auto-transition UNREAD -> REVIEWED after viewing a completed reel for 2.5 seconds
+    var hasAutoReviewedThisVisit by remember(currentReel.shortcode) { mutableStateOf(false) }
+    LaunchedEffect(currentReel.shortcode, currentReel.status, currentReel.processingState) {
+        if (!hasAutoReviewedThisVisit &&
+            currentReel.processingState == "COMPLETED" &&
+            currentReel.status.equals("UNREAD", ignoreCase = true)
+        ) {
+            kotlinx.coroutines.delay(2500L)
+            hasAutoReviewedThisVisit = true
+            viewModel.updateStatus("REVIEWED")
+        }
+    }
+
     // Parse JSON fields safely
     val keyMoments: List<KeyMomentWithImage> = remember(currentReel.keyMoments) {
         try {
@@ -1262,100 +1275,129 @@ private fun TranscriptTabContent(reel: ReelEntity) {
 @Composable
 private fun LinksTabContent(extractedResources: List<ExtractedResource>) {
     val context = LocalContext.current
+    val colors = LocalSavyorColors.current
+    val haptic = LocalHapticFeedback.current
 
-    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+    Column(
+        modifier = Modifier.padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         if (extractedResources.isEmpty()) {
             Text(
                 text = "No external resources or URLs were mentioned in this reel.",
                 fontFamily = SavyorSansFamily,
                 fontSize = 14.sp,
                 lineHeight = 22.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = colors.inkSecondary
             )
         } else {
             extractedResources.forEach { resource ->
+                val targetUrl = resource.url.ifBlank {
+                    "https://www.google.com/search?q=${Uri.encode(resource.name)}"
+                }
+                val parsedSubtitle = remember(targetUrl) {
+                    runCatching {
+                        val u = Uri.parse(targetUrl)
+                        val host = (u.host ?: "").removePrefix("www.")
+                        val path = (u.path ?: "").trimEnd('/')
+                        if (path.isNotBlank() && path != "/") "$host$path" else host.ifBlank { targetUrl }
+                    }.getOrDefault(targetUrl)
+                }
+                val kindLabel = resource.kind.ifBlank { if (resource.url.isBlank()) "SEARCH" else "DIRECT" }.uppercase()
+                val cardShape = RoundedCornerShape(14.dp)
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 5.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+                        .savyorCardBorder(cardShape)
+                        .clickable {
+                            runCatching {
+                                val uri = Uri.parse(targetUrl)
+                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            }.onFailure {
+                                Toast.makeText(context, "No browser available to open link", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    shape = cardShape,
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = resource.name,
-                            fontFamily = SavyorSansFamily,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (resource.description.isNotBlank()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = resource.name,
+                                    fontFamily = SavyorSansFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.5.sp,
+                                    color = colors.inkPrimary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = colors.surfaceRecessed,
+                                    border = BorderStroke(1.dp, colors.borderSubtle)
+                                ) {
+                                    Text(
+                                        text = kindLabel,
+                                        fontFamily = SavyorMonoFamily,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.inkSecondary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = resource.description,
-                                fontFamily = SavyorSansFamily,
-                                fontSize = 13.5.sp,
-                                lineHeight = 20.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = parsedSubtitle,
+                                fontFamily = SavyorMonoFamily,
+                                fontSize = 11.5.sp,
+                                color = colors.inkMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            if (resource.description.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = resource.description,
+                                    fontFamily = SavyorSansFamily,
+                                    fontSize = 12.5.sp,
+                                    lineHeight = 18.sp,
+                                    color = colors.inkSecondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        if (resource.url.isNotBlank()) {
-                            OutlinedButton(
-                                onClick = {
-                                    try {
-                                        val uri = Uri.parse(resource.url)
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Outlined.OpenInNew,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    "Open Link",
-                                    fontFamily = SavyorSansFamily,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = {
-                                    try {
-                                        val query = Uri.encode(resource.name)
-                                        val uri = Uri.parse("https://www.google.com/search?q=$query")
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Could not open search", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
-                            ) {
-                                Icon(
-                                    Icons.Outlined.Search,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    "Search Web",
-                                    fontFamily = SavyorSansFamily,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Link", targetUrl))
+                                Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ContentCopy,
+                                contentDescription = "Copy Link",
+                                tint = colors.inkSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
                 }

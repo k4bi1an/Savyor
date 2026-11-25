@@ -1,10 +1,13 @@
 package com.savyor.app.data.remote
 
+import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
-import com.google.gson.JsonObject
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonDeserializer
 import com.google.gson.JsonParser
 import com.savyor.app.domain.model.GeminiReelAnalysis
+import com.savyor.app.domain.model.KeyMomentAnalysis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -40,8 +43,43 @@ class GeminiFilesClient(
     companion object {
         private const val TAG = "GeminiClient"
         private const val BASE_URL = "https://generativelanguage.googleapis.com"
-        private const val MODEL_NAME = "gemini-3.5-flash"
+        const val MODEL_NAME = "gemini-2.5-flash"
         private const val CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB required chunk granularity
+        private const val INLINE_VIDEO_LIMIT_BYTES = 15L * 1024L * 1024L
+
+        private val RESILIENT_GSON: Gson = GsonBuilder()
+            .registerTypeAdapter(
+                KeyMomentAnalysis::class.java,
+                JsonDeserializer { json, _, _ ->
+                    val obj = json.asJsonObject
+                    val tsElem = obj.get("timestamp_sec") ?: obj.get("timestamp")
+                    val sec = parseFlexibleTimestampSec(tsElem?.asString ?: tsElem?.toString() ?: "0")
+                    val label = obj.get("label")?.asString ?: ""
+                    KeyMomentAnalysis(timestampSec = sec, label = label)
+                }
+            )
+            .create()
+
+        internal fun parseFlexibleTimestampSec(raw: String?): Int {
+            if (raw.isNullOrBlank()) return 0
+            val clean = raw.trim().trim('"')
+            clean.toDoubleOrNull()?.let { return it.toInt().coerceAtLeast(0) }
+            val parts = clean.split(":")
+            return when (parts.size) {
+                2 -> {
+                    val m = parts[0].trim().toIntOrNull() ?: 0
+                    val s = parts[1].trim().toDoubleOrNull()?.toInt() ?: 0
+                    (m * 60 + s).coerceAtLeast(0)
+                }
+                3 -> {
+                    val h = parts[0].trim().toIntOrNull() ?: 0
+                    val m = parts[1].trim().toIntOrNull() ?: 0
+                    val s = parts[2].trim().toDoubleOrNull()?.toInt() ?: 0
+                    (h * 3600 + m * 60 + s).coerceAtLeast(0)
+                }
+                else -> 0
+            }
+        }
     }
 
     override suspend fun testConnection(apiKey: String): Result<String> = withContext(Dispatchers.IO) {
@@ -68,6 +106,14 @@ class GeminiFilesClient(
     ): GeminiReelAnalysis = withContext(Dispatchers.IO) {
         require(apiKey.isNotBlank()) { "Gemini API key is not configured. Please enter your key in Settings." }
         require(videoFile.exists() && videoFile.length() > 0) { "Video file does not exist or is empty" }
+
+        val fileLength = videoFile.length()
+        if (fileLength < INLINE_VIDEO_LIMIT_BYTES) {
+            Log.i(TAG, "Using fast inline video upload for ${videoFile.name} ($fileLength bytes) with $MODEL_NAME")
+            return@withContext executeWithRetry("GenerateContentInline") {
+                generateContentInline(apiKey, videoFile, prompt)
+            }
+        }
 
         var remoteFileName: String? = null
         try {
@@ -212,6 +258,7 @@ class GeminiFilesClient(
 
     private suspend fun waitForFileActive(apiKey: String, fileName: String) {
         val checkUrl = "$BASE_URL/v1beta/$fileName?key=$apiKey"
+        val backoffMs = listOf(500L, 800L, 1200L, 1500L)
         var attempts = 0
         while (attempts < 30) {
             val request = Request.Builder().url(checkUrl).get().build()
@@ -232,10 +279,62 @@ class GeminiFilesClient(
                 throw Exception("Remote Gemini file processing failed state=$state")
             }
 
+            delay(backoffMs.getOrElse(attempts) { 1500L })
             attempts++
-            delay(1500)
         }
         throw Exception("Timeout waiting for file $fileName to become ACTIVE")
+    }
+
+    private fun generateContentInline(
+        apiKey: String,
+        videoFile: File,
+        prompt: String
+    ): GeminiReelAnalysis {
+        val url = "$BASE_URL/v1beta/models/$MODEL_NAME:generateContent?key=$apiKey"
+        val encodedVideo = Base64.encodeToString(videoFile.readBytes(), Base64.NO_WRAP)
+
+        val requestBodyJson = """
+        {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "inline_data": {
+                                "mime_type": "video/mp4",
+                                "data": "$encodedVideo"
+                            }
+                        },
+                        {
+                            "text": ${gson.toJson(prompt)}
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.2,
+                "responseMimeType": "application/json",
+                "thinkingConfig": {
+                    "thinkingBudget": 0
+                }
+            }
+        }
+        """.trimIndent()
+
+        val request = Request.Builder()
+            .url(url)
+            .post(requestBodyJson.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        val (statusCode, responseBody) = client.newCall(request).execute().use { resp ->
+            Pair(resp.code, resp.body?.string().orEmpty())
+        }
+
+        if (statusCode !in 200..299) {
+            throw GeminiApiException(statusCode, "GenerateContent failed: HTTP $statusCode - $responseBody")
+        }
+
+        return parseGeminiResponse(responseBody)
     }
 
     private fun generateContentWithFile(
@@ -265,7 +364,10 @@ class GeminiFilesClient(
             ],
             "generationConfig": {
                 "temperature": 0.2,
-                "responseMimeType": "application/json"
+                "responseMimeType": "application/json",
+                "thinkingConfig": {
+                    "thinkingBudget": 0
+                }
             }
         }
         """.trimIndent()
@@ -305,7 +407,7 @@ class GeminiFilesClient(
             .removeSuffix("```")
             .trim()
 
-        return gson.fromJson(cleanedJson, GeminiReelAnalysis::class.java)
+        return RESILIENT_GSON.fromJson(cleanedJson, GeminiReelAnalysis::class.java)
     }
 
     private fun deleteRemoteFile(apiKey: String, fileName: String) {

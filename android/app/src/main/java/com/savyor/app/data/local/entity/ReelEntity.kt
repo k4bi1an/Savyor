@@ -83,7 +83,7 @@ data class ReelEntity(
     val isStarred: Boolean = false,
 
     @ColumnInfo(name = "status")
-    val status: String = "UNREAD", // UNREAD, REVIEWED, TRIED, ARCHIVED
+    val status: String = "PROCESSING", // PROCESSING, UNREAD, REVIEWED, TRIED, ARCHIVED, FAILED
 
     @ColumnInfo(name = "processing_state")
     val processingState: String = "QUEUED", // QUEUED, DOWNLOADING, ANALYZING, COMPLETED, FAILED
@@ -95,5 +95,39 @@ data class ReelEntity(
     val createdAt: Long = System.currentTimeMillis(),
 
     @ColumnInfo(name = "updated_at")
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+
+    // Processing telemetry (Room v4)
+    @ColumnInfo(name = "yt_dlp_duration_ms")
+    val ytDlpDurationMs: Long? = null,
+
+    @ColumnInfo(name = "frame_extract_duration_ms")
+    val frameExtractDurationMs: Long? = null,
+
+    @ColumnInfo(name = "ai_analysis_duration_ms")
+    val aiAnalysisDurationMs: Long? = null,
+
+    @ColumnInfo(name = "total_processing_duration_ms")
+    val totalProcessingDurationMs: Long? = null,
+
+    @ColumnInfo(name = "video_duration_sec")
+    val videoDurationSec: Int? = null,
+
+    @ColumnInfo(name = "downloaded_video_bytes")
+    val downloadedVideoBytes: Long? = null,
+
+    @ColumnInfo(name = "cover_size_bytes")
+    val coverSizeBytes: Long? = null,
+
+    @ColumnInfo(name = "frames_extracted_count")
+    val framesExtractedCount: Int? = null,
+
+    @ColumnInfo(name = "links_extracted_count")
+    val linksExtractedCount: Int? = null,
+
+    @ColumnInfo(name = "ai_model_used")
+    val aiModelUsed: String? = null,
+
+    @ColumnInfo(name = "processing_error")
+    val processingError: String? = null
 )

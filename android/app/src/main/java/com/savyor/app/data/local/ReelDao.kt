@@ -22,6 +22,12 @@ interface ReelDao {
     @Query("SELECT * FROM reels WHERE processing_state IN ('QUEUED', 'DOWNLOADING', 'ANALYZING') ORDER BY created_at ASC")
     fun getActiveProcessingReels(): Flow<List<ReelEntity>>
 
+    @Query("SELECT * FROM reels WHERE processing_state IN ('QUEUED', 'DOWNLOADING', 'ANALYZING')")
+    suspend fun getActiveProcessingReelsOnce(): List<ReelEntity>
+
+    @Query("SELECT * FROM reels ORDER BY created_at DESC")
+    suspend fun getAllReelsOnce(): List<ReelEntity>
+
     @Query("SELECT * FROM reels WHERE shortcode = :shortcode LIMIT 1")
     suspend fun getReelByShortcode(shortcode: String): ReelEntity?
 
@@ -83,6 +89,15 @@ interface ReelDao {
     suspend fun updateProcessingState(
         shortcode: String,
         state: String,
+        errorMessage: String? = null,
+        updatedAt: Long = System.currentTimeMillis()
+    )
+
+    @Query("UPDATE reels SET processing_state = :state, status = :status, error_message = :errorMessage, processing_error = :errorMessage, updated_at = :updatedAt WHERE shortcode = :shortcode")
+    suspend fun updateProcessingAndStatus(
+        shortcode: String,
+        state: String,
+        status: String,
         errorMessage: String? = null,
         updatedAt: Long = System.currentTimeMillis()
     )

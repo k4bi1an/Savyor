@@ -1,5 +1,6 @@
 package com.savyor.app.ui.screens.library
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -17,6 +18,15 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -86,23 +96,58 @@ fun LibraryScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val viewMode by viewModel.viewMode.collectAsState()
     val sortOrder by viewModel.sortOrder.collectAsState()
+    val dateFilter by viewModel.dateFilter.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     val haptic = LocalHapticFeedback.current
-    val coroutineScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var showAddDialog by remember { mutableStateOf(false) }
+    var showAddTopicDialog by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showDateRangePicker by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by remember { mutableStateOf(false) }
 
+    BackHandler(enabled = isSearchExpanded) {
+        viewModel.setSearchQuery("")
+        isSearchExpanded = false
+        focusManager.clearFocus()
+        keyboardController?.hide()
+    }
+
     val searchFocusRequester = remember { FocusRequester() }
     val snackbarHostState = remember { SnackbarHostState() }
+    val chipListState = rememberLazyListState()
 
-    val categoryColorMap = remember(categories) {
-        categories.associate { it.name to it.colorHex }
+    val categoryPages = remember(categories) {
+        listOf("All") + categories.map { it.name }
     }
-    val activeFilterCount = remember(selectedStatus, starredOnly, sortOrder) {
+    val pagerState = rememberPagerState(
+        initialPage = categoryPages.indexOf(selectedCategory).coerceAtLeast(0),
+        pageCount = { categoryPages.size }
+    )
+
+    LaunchedEffect(pagerState.currentPage, categoryPages) {
+        val pageCategory = categoryPages.getOrNull(pagerState.currentPage) ?: "All"
+        if (pageCategory != selectedCategory) {
+            viewModel.selectCategory(pageCategory)
+        }
+        chipListState.animateScrollToItem(pagerState.currentPage.coerceAtMost((categoryPages.size - 1).coerceAtLeast(0)))
+    }
+
+    LaunchedEffect(selectedCategory, categoryPages) {
+        val targetIndex = categoryPages.indexOf(selectedCategory)
+        if (targetIndex >= 0 && targetIndex != pagerState.currentPage) {
+            pagerState.animateScrollToPage(targetIndex)
+        }
+    }
+
+    val activeFilterCount = remember(selectedStatus, starredOnly, sortOrder, dateFilter) {
         (if (selectedStatus != "All") 1 else 0) +
             (if (starredOnly) 1 else 0) +
-            (if (sortOrder != SortOrder.NEWEST) 1 else 0)
+            (if (sortOrder != SortOrder.NEWEST) 1 else 0) +
+            (if (dateFilter !is DateFilter.AnyTime) 1 else 0)
     }
 
     // Smooth scroll collapse/reveal for the floating header capsule + filter dock
@@ -144,174 +189,149 @@ fun LibraryScreen(
     val listTopPadding = statusBarTop + 120.dp
     val listBottomPadding = navBarBottom + 104.dp
 
+    val pullRefreshState = rememberPullToRefreshState()
+    LaunchedEffect(pullRefreshState.isRefreshing) {
+        if (pullRefreshState.isRefreshing) {
+            viewModel.refreshLibrary()
+        }
+    }
+    LaunchedEffect(isRefreshing) {
+        if (!isRefreshing && pullRefreshState.isRefreshing) {
+            pullRefreshState.endRefresh()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.bgCanvas)
             .nestedScroll(nestedScrollConnection)
+            .nestedScroll(pullRefreshState.nestedScrollConnection)
     ) {
-        // 1. Full-Bleed Scrollable Content Underneath Floating Chrome
-        val hasActiveFilters = searchQuery.isNotBlank() || starredOnly || selectedCategory != "All" || selectedStatus != "All"
-        if (reels.isEmpty() && activeJobs.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(top = listTopPadding, bottom = listBottomPadding)) {
-                if (hasActiveFilters) {
-                    EmptySearchView(
-                        query = searchQuery,
-                        onClearSearch = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.clearAllFilters()
-                        }
-                    )
-                } else {
-                    EmptyLibraryView(onAddClick = { showAddDialog = true })
+        // 1. Full-Bleed Swipeable HorizontalPager Feed Underneath Floating Chrome
+        val hasActiveFilters = searchQuery.isNotBlank() || starredOnly || selectedCategory != "All" ||
+            selectedStatus != "All" || dateFilter !is DateFilter.AnyTime
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { _ ->
+            if (reels.isEmpty() && activeJobs.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize().padding(top = listTopPadding, bottom = listBottomPadding)) {
+                    if (hasActiveFilters) {
+                        EmptySearchView(
+                            query = searchQuery,
+                            onClearSearch = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.clearAllFilters()
+                            }
+                        )
+                    } else {
+                        EmptyLibraryView(onAddClick = { showAddDialog = true })
+                    }
                 }
-            }
-        } else {
-            AnimatedContent(
-                targetState = viewMode,
-                transitionSpec = {
-                    fadeIn(tween(220)) togetherWith fadeOut(tween(180))
-                },
-                label = "view_mode_transition"
-            ) { mode ->
-                when (mode) {
-                    ViewMode.GRID -> {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
-                            contentPadding = PaddingValues(
-                                top = listTopPadding,
-                                bottom = listBottomPadding,
-                                start = 12.dp,
-                                end = 12.dp
-                            ),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            if (activeJobs.isNotEmpty()) {
-                                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
-                                    ActiveJobsSection(activeJobs)
+            } else {
+                AnimatedContent(
+                    targetState = viewMode,
+                    transitionSpec = {
+                        fadeIn(tween(220)) togetherWith fadeOut(tween(180))
+                    },
+                    label = "view_mode_transition"
+                ) { mode ->
+                    when (mode) {
+                        ViewMode.GRID -> {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(2),
+                                contentPadding = PaddingValues(
+                                    top = listTopPadding,
+                                    bottom = listBottomPadding,
+                                    start = 12.dp,
+                                    end = 12.dp
+                                ),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                if (activeJobs.isNotEmpty()) {
+                                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
+                                        ActiveJobsSection(activeJobs)
+                                    }
                                 }
-                            }
-                            items(reels, key = { it.id }) { reel ->
-                                Box(
-                                    modifier = Modifier.animateItemPlacement(
-                                        spring(stiffness = Spring.StiffnessMediumLow)
-                                    )
-                                ) {
-                                    ReelGridCard(
-                                        reel = reel,
-                                        dotColor = categoryDotColor(
-                                            reel.category,
-                                            categoryColorMap[reel.category] ?: "#52525B",
-                                            colors.isDark
-                                        ),
-                                        onClick = { onNavigateToDetail(reel.shortcode) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    ViewMode.LIST -> {
-                        LazyColumn(
-                            contentPadding = PaddingValues(
-                                top = listTopPadding,
-                                bottom = listBottomPadding,
-                                start = 12.dp,
-                                end = 12.dp
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            if (activeJobs.isNotEmpty()) {
-                                item { ActiveJobsSection(activeJobs) }
-                            }
-                            items(reels, key = { it.id }) { reel ->
-                                Box(
-                                    modifier = Modifier.animateItemPlacement(
-                                        spring(stiffness = Spring.StiffnessMediumLow)
-                                    )
-                                ) {
-                                    SwipeableReelListRow(
-                                        reel = reel,
-                                        dotColor = categoryDotColor(
-                                            reel.category,
-                                            categoryColorMap[reel.category] ?: "#52525B",
-                                            colors.isDark
-                                        ),
-                                        onClick = { onNavigateToDetail(reel.shortcode) },
-                                        onCycleStatus = {
-                                            val prev = reel.status
-                                            val next = viewModel.nextTriageStatus(prev)
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            viewModel.setReelStatus(reel.shortcode, next)
-                                            coroutineScope.launch {
-                                                val res = snackbarHostState.showSnackbar(
-                                                    message = "Marked ${next.lowercase()}",
-                                                    actionLabel = "Undo",
-                                                    duration = SnackbarDuration.Short
-                                                )
-                                                if (res == SnackbarResult.ActionPerformed) {
-                                                    viewModel.setReelStatus(reel.shortcode, prev)
-                                                }
-                                            }
-                                        },
-                                        onToggleStar = {
-                                            val prev = reel.isStarred
-                                            val next = !prev
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            viewModel.setReelStarred(reel.shortcode, next)
-                                            coroutineScope.launch {
-                                                val res = snackbarHostState.showSnackbar(
-                                                    message = if (next) "Added to Starred" else "Removed from Starred",
-                                                    actionLabel = "Undo",
-                                                    duration = SnackbarDuration.Short
-                                                )
-                                                if (res == SnackbarResult.ActionPerformed) {
-                                                    viewModel.setReelStarred(reel.shortcode, prev)
-                                                }
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    ViewMode.COMPACT -> {
-                        LazyColumn(
-                            contentPadding = PaddingValues(
-                                top = listTopPadding,
-                                bottom = listBottomPadding,
-                                start = 16.dp,
-                                end = 16.dp
-                            ),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            if (activeJobs.isNotEmpty()) {
-                                item { ActiveJobsSection(activeJobs) }
-                            }
-                            itemsIndexed(reels, key = { _, item -> item.id }) { index, reel ->
-                                Column(
-                                    modifier = Modifier.animateItemPlacement(
-                                        spring(stiffness = Spring.StiffnessMediumLow)
-                                    )
-                                ) {
-                                    ReelCompactRow(
-                                        reel = reel,
-                                        dotColor = categoryDotColor(
-                                            reel.category,
-                                            categoryColorMap[reel.category] ?: "#52525B",
-                                            colors.isDark
-                                        ),
-                                        onClick = { onNavigateToDetail(reel.shortcode) }
-                                    )
-                                    if (index < reels.lastIndex) {
-                                        HorizontalDivider(
-                                            color = colors.borderSubtle,
-                                            thickness = 1.dp
+                                items(reels, key = { it.id }) { reel ->
+                                    Box(
+                                        modifier = Modifier.animateItemPlacement(
+                                            spring(stiffness = Spring.StiffnessMediumLow)
                                         )
+                                    ) {
+                                        ReelGridCard(
+                                            reel = reel,
+                                            onClick = { onNavigateToDetail(reel.shortcode) },
+                                            onRetry = { viewModel.retryReel(reel.cleanUrl) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        ViewMode.LIST -> {
+                            LazyColumn(
+                                contentPadding = PaddingValues(
+                                    top = listTopPadding,
+                                    bottom = listBottomPadding,
+                                    start = 12.dp,
+                                    end = 12.dp
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                if (activeJobs.isNotEmpty()) {
+                                    item { ActiveJobsSection(activeJobs) }
+                                }
+                                items(reels, key = { it.id }) { reel ->
+                                    Box(
+                                        modifier = Modifier.animateItemPlacement(
+                                            spring(stiffness = Spring.StiffnessMediumLow)
+                                        )
+                                    ) {
+                                        ReelListRow(
+                                            reel = reel,
+                                            onClick = { onNavigateToDetail(reel.shortcode) },
+                                            onRetry = { viewModel.retryReel(reel.cleanUrl) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        ViewMode.COMPACT -> {
+                            LazyColumn(
+                                contentPadding = PaddingValues(
+                                    top = listTopPadding,
+                                    bottom = listBottomPadding,
+                                    start = 16.dp,
+                                    end = 16.dp
+                                ),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                if (activeJobs.isNotEmpty()) {
+                                    item { ActiveJobsSection(activeJobs) }
+                                }
+                                itemsIndexed(reels, key = { _, item -> item.id }) { index, reel ->
+                                    Column(
+                                        modifier = Modifier.animateItemPlacement(
+                                            spring(stiffness = Spring.StiffnessMediumLow)
+                                        )
+                                    ) {
+                                        ReelCompactRow(
+                                            reel = reel,
+                                            onClick = { onNavigateToDetail(reel.shortcode) }
+                                        )
+                                        if (index < reels.lastIndex) {
+                                            HorizontalDivider(
+                                                color = colors.borderSubtle,
+                                                thickness = 1.dp
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -320,6 +340,16 @@ fun LibraryScreen(
                 }
             }
         }
+
+        // Material 3 Pull-to-Refresh Indicator
+        PullToRefreshContainer(
+            state = pullRefreshState,
+            containerColor = colors.surfaceElevated,
+            contentColor = colors.inkPrimary,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = listTopPadding - 16.dp)
+        )
 
         // 2. Top Status-Bar Fade Scrim
         TopStatusBarScrim(statusBarTop = statusBarTop)
@@ -488,6 +518,7 @@ fun LibraryScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 LazyRow(
+                    state = chipListState,
                     modifier = Modifier
                         .weight(1f)
                         .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
@@ -519,12 +550,42 @@ fun LibraryScreen(
                         CrystalCategoryChip(
                             text = cat.name,
                             selected = selectedCategory == cat.name,
-                            dotColor = categoryDotColor(cat.name, cat.colorHex, colors.isDark),
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 viewModel.selectCategory(cat.name)
                             }
                         )
+                    }
+                    item {
+                        val addTopicShape = RoundedCornerShape(18.dp)
+                        Box(
+                            modifier = Modifier
+                                .height(36.dp)
+                                .savyorLiquidCrystal(tier = CrystalTier.PILL, shape = addTopicShape)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    showAddTopicDialog = true
+                                }
+                                .padding(horizontal = 11.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Add Topic",
+                                    tint = colors.inkPrimary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "Topic",
+                                    fontFamily = SavyorSansFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.inkPrimary
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -632,6 +693,7 @@ fun LibraryScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .savyorLiquidCrystal(tier = CrystalTier.SHEET, shape = sheetShape)
+                    .verticalScroll(rememberScrollState())
                     .navigationBarsPadding()
                     .padding(horizontal = 20.dp)
                     .padding(bottom = 16.dp)
@@ -748,6 +810,69 @@ fun LibraryScreen(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 Text(
+                    text = "DATE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.inkMuted
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CrystalCategoryChip(
+                            text = "Any Time",
+                            selected = dateFilter is DateFilter.AnyTime,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.setDateFilter(DateFilter.AnyTime)
+                            }
+                        )
+                        CrystalCategoryChip(
+                            text = "Today",
+                            selected = dateFilter is DateFilter.Today,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.setDateFilter(DateFilter.Today)
+                            }
+                        )
+                        CrystalCategoryChip(
+                            text = "Last 7 Days",
+                            selected = dateFilter is DateFilter.Last7Days,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.setDateFilter(DateFilter.Last7Days)
+                            }
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CrystalCategoryChip(
+                            text = "Last 30 Days",
+                            selected = dateFilter is DateFilter.Last30Days,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.setDateFilter(DateFilter.Last30Days)
+                            }
+                        )
+                        CrystalCategoryChip(
+                            text = if (dateFilter is DateFilter.SingleDay) dateFilter.displayLabel() else "Pick Date",
+                            selected = dateFilter is DateFilter.SingleDay,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showDatePicker = true
+                            }
+                        )
+                        CrystalCategoryChip(
+                            text = if (dateFilter is DateFilter.Range) dateFilter.displayLabel() else "Date Range",
+                            selected = dateFilter is DateFilter.Range,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showDateRangePicker = true
+                            }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
                     text = "SORT BY",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.inkMuted
@@ -786,6 +911,113 @@ fun LibraryScreen(
                     }
                 }
             }
+        }
+    }
+
+    // Add Topic Dialog (opened directly from Home top category rail)
+    if (showAddTopicDialog) {
+        var newTopicName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddTopicDialog = false },
+            containerColor = colors.surfaceElevated,
+            title = {
+                Text("Add Topic", style = MaterialTheme.typography.titleLarge, color = colors.inkPrimary)
+            },
+            text = {
+                OutlinedTextField(
+                    value = newTopicName,
+                    onValueChange = { newTopicName = it },
+                    placeholder = { Text("e.g., Motion Design", fontSize = 13.sp) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val clean = newTopicName.trim()
+                        if (clean.isNotBlank()) {
+                            viewModel.addCategory(clean)
+                            viewModel.selectCategory(clean)
+                            showAddTopicDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.ctaBg, contentColor = colors.ctaFg)
+                ) {
+                    Text("Add", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddTopicDialog = false }) {
+                    Text("Cancel", fontFamily = SavyorSansFamily, color = colors.inkSecondary)
+                }
+            }
+        )
+    }
+
+    // Single Date Picker Dialog
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = (dateFilter as? DateFilter.SingleDay)?.epochMillis
+                ?: System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { millis ->
+                            viewModel.setDateFilter(DateFilter.SingleDay(millis))
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("Apply", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel", fontFamily = SavyorSansFamily)
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    // Date Range Picker Dialog
+    if (showDateRangePicker) {
+        val rangeState = rememberDateRangePickerState(
+            initialSelectedStartDateMillis = (dateFilter as? DateFilter.Range)?.startMillis,
+            initialSelectedEndDateMillis = (dateFilter as? DateFilter.Range)?.endMillis
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDateRangePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val start = rangeState.selectedStartDateMillis
+                        val end = rangeState.selectedEndDateMillis ?: start
+                        if (start != null && end != null) {
+                            viewModel.setDateFilter(DateFilter.Range(start, end))
+                        }
+                        showDateRangePicker = false
+                    }
+                ) {
+                    Text("Apply", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDateRangePicker = false }) {
+                    Text("Cancel", fontFamily = SavyorSansFamily)
+                }
+            }
+        ) {
+            DateRangePicker(
+                state = rangeState,
+                modifier = Modifier.height(420.dp)
+            )
         }
     }
 
@@ -1102,11 +1334,14 @@ fun ActiveJobsSection(jobs: List<ReelEntity>) {
 @Composable
 fun ReelGridCard(
     reel: ReelEntity,
-    dotColor: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRetry: () -> Unit = {}
 ) {
     val colors = LocalSavyorColors.current
     val cardShape = RoundedCornerShape(14.dp)
+    val isProcessing = reel.processingState in setOf("QUEUED", "DOWNLOADING", "ANALYZING") ||
+        reel.status.equals("PROCESSING", ignoreCase = true)
+    val isFailed = reel.processingState == "FAILED" || reel.status.equals("FAILED", ignoreCase = true)
 
     Card(
         shape = cardShape,
@@ -1130,7 +1365,7 @@ fun ReelGridCard(
                         model = ImageRequest.Builder(context)
                             .data(File(reel.thumbnailPath))
                             .crossfade(true)
-                            .size(480, 600)
+                            .size(540, 660)
                             .build(),
                         contentDescription = reel.title,
                         modifier = Modifier.fillMaxSize(),
@@ -1147,7 +1382,57 @@ fun ReelGridCard(
                     }
                 }
 
-                if (reel.isStarred) {
+                if (isProcessing) {
+                    val stageLabel = when (reel.processingState.uppercase()) {
+                        "DOWNLOADING" -> "DOWNLOADING"
+                        "ANALYZING" -> "AI NOTES"
+                        else -> "ANALYZING"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(colors.bgCanvas.copy(alpha = 0.72f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.5.dp,
+                                color = colors.unreadFg
+                            )
+                            Text(
+                                text = stageLabel,
+                                fontFamily = SavyorMonoFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp,
+                                color = colors.inkPrimary
+                            )
+                        }
+                    }
+                } else if (isFailed) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(colors.bgCanvas.copy(alpha = 0.75f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        OutlinedButton(
+                            onClick = onRetry,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, colors.errorFg.copy(alpha = 0.6f))
+                        ) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null, tint = colors.errorFg, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Retry", fontFamily = SavyorSansFamily, fontSize = 12.sp, color = colors.errorFg)
+                        }
+                    }
+                }
+
+                if (reel.isStarred && !isProcessing) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -1166,7 +1451,7 @@ fun ReelGridCard(
                 }
 
                 StatusBadge(
-                    status = reel.status,
+                    status = if (isProcessing) "PROCESSING" else reel.status,
                     isFrosted = true,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -1185,7 +1470,7 @@ fun ReelGridCard(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Clean single-line footer: @handle + category dot
+                // Clean monochrome single-line footer: @handle · Category
                 val creatorText = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}"
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1200,14 +1485,12 @@ fun ReelGridCard(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(dotColor)
+                    Text(
+                        text = " \u00B7 ",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp,
+                        color = colors.inkMuted
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = reel.category,
                         style = MaterialTheme.typography.bodySmall,
@@ -1222,83 +1505,18 @@ fun ReelGridCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SwipeableReelListRow(
-    reel: ReelEntity,
-    dotColor: Color,
-    onClick: () -> Unit,
-    onCycleStatus: () -> Unit,
-    onToggleStar: () -> Unit
-) {
-    val colors = LocalSavyorColors.current
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    onCycleStatus()
-                    false
-                }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    onToggleStar()
-                    false
-                }
-                SwipeToDismissBoxValue.Settled -> false
-            }
-        }
-    )
-
-    SwipeToDismissBox(
-        state = dismissState,
-        backgroundContent = {
-            val direction = dismissState.dismissDirection
-            val bgColor = when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> colors.triedBg
-                SwipeToDismissBoxValue.EndToStart -> colors.reviewedBg
-                else -> colors.surfaceRecessed
-            }
-            val align = if (direction == SwipeToDismissBoxValue.StartToEnd) {
-                Alignment.CenterStart
-            } else {
-                Alignment.CenterEnd
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(bgColor)
-                    .padding(horizontal = 20.dp),
-                contentAlignment = align
-            ) {
-                if (direction == SwipeToDismissBoxValue.StartToEnd) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = colors.triedFg)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Next Status", fontFamily = SavyorSansFamily, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.triedFg)
-                    }
-                } else if (direction == SwipeToDismissBoxValue.EndToStart) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (reel.isStarred) "Unstar" else "Star", fontFamily = SavyorSansFamily, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.reviewedFg)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Icon(Icons.Filled.Star, contentDescription = null, tint = colors.reviewedFg)
-                    }
-                }
-            }
-        },
-        content = {
-            ReelListRow(reel = reel, dotColor = dotColor, onClick = onClick)
-        }
-    )
-}
-
 @Composable
 fun ReelListRow(
     reel: ReelEntity,
-    dotColor: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onRetry: () -> Unit = {}
 ) {
     val colors = LocalSavyorColors.current
     val shape = RoundedCornerShape(14.dp)
+    val isProcessing = reel.processingState in setOf("QUEUED", "DOWNLOADING", "ANALYZING") ||
+        reel.status.equals("PROCESSING", ignoreCase = true)
+    val isFailed = reel.processingState == "FAILED" || reel.status.equals("FAILED", ignoreCase = true)
+
     Card(
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
@@ -1340,6 +1558,20 @@ fun ReelListRow(
                             contentDescription = null,
                             tint = colors.inkMuted.copy(alpha = 0.4f),
                             modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+                if (isProcessing) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(colors.bgCanvas.copy(alpha = 0.72f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.unreadFg
                         )
                     }
                 }
@@ -1402,14 +1634,12 @@ fun ReelListRow(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(dotColor)
+                        Text(
+                            text = " \u00B7 ",
+                            fontFamily = SavyorSansFamily,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = reel.category,
                             fontFamily = SavyorSansFamily,
@@ -1421,7 +1651,18 @@ fun ReelListRow(
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    StatusBadge(status = reel.status)
+                    if (isFailed) {
+                        OutlinedButton(
+                            onClick = onRetry,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            border = BorderStroke(1.dp, colors.errorFg.copy(alpha = 0.6f))
+                        ) {
+                            Text("Retry", fontFamily = SavyorSansFamily, fontSize = 10.5.sp, color = colors.errorFg)
+                        }
+                    } else {
+                        StatusBadge(status = if (isProcessing) "PROCESSING" else reel.status)
+                    }
                 }
             }
         }
@@ -1431,7 +1672,6 @@ fun ReelListRow(
 @Composable
 fun ReelCompactRow(
     reel: ReelEntity,
-    dotColor: Color,
     onClick: () -> Unit
 ) {
     val colors = LocalSavyorColors.current
@@ -1472,15 +1712,6 @@ fun ReelCompactRow(
         }
 
         Spacer(modifier = Modifier.width(12.dp))
-
-        Box(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(dotColor)
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
 
         Text(
             text = reel.title.ifBlank { "Reel @${reel.shortcode}" },

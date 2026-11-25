@@ -1,13 +1,15 @@
 package com.savyor.app.ui.screens.settings
 
 import android.app.Application
+import android.net.Uri
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import android.net.Uri
+import com.google.gson.GsonBuilder
+import com.savyor.app.BuildConfig
 import com.savyor.app.data.local.BackupRestoreManager
-import com.savyor.app.data.local.BackupStats
 import com.savyor.app.data.local.EncryptedSettingsManager
-import com.savyor.app.data.local.RestoreStats
+import com.savyor.app.data.local.SavyorDatabase
 import com.savyor.app.data.remote.GeminiFilesClient
 import com.savyor.app.data.remote.YtDlpEngine
 import com.savyor.app.ui.theme.SavyorThemeMode
@@ -44,11 +46,23 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _autoUpdateYtDlp = MutableStateFlow(settings.autoUpdateYtDlp)
     val autoUpdateYtDlp: StateFlow<Boolean> = _autoUpdateYtDlp.asStateFlow()
 
-    private val _ytDlpVersion = MutableStateFlow("Checking...")
+    private val _ytDlpVersion = MutableStateFlow(settings.ytDlpInstalledVersion.ifBlank { "Checking..." })
     val ytDlpVersion: StateFlow<String> = _ytDlpVersion.asStateFlow()
+
+    private val _ytDlpLatestVersion = MutableStateFlow(settings.ytDlpLatestVersion)
+    val ytDlpLatestVersion: StateFlow<String> = _ytDlpLatestVersion.asStateFlow()
+
+    private val _ytDlpUpdateStatus = MutableStateFlow(settings.ytDlpUpdateStatus)
+    val ytDlpUpdateStatus: StateFlow<String> = _ytDlpUpdateStatus.asStateFlow()
+
+    private val _ytDlpLastCheckedMs = MutableStateFlow(settings.ytDlpLastCheckedEpochMs)
+    val ytDlpLastCheckedMs: StateFlow<Long> = _ytDlpLastCheckedMs.asStateFlow()
 
     private val _isUpdatingEngine = MutableStateFlow(false)
     val isUpdatingEngine: StateFlow<Boolean> = _isUpdatingEngine.asStateFlow()
+
+    private val _isExportingTelemetry = MutableStateFlow(false)
+    val isExportingTelemetry: StateFlow<Boolean> = _isExportingTelemetry.asStateFlow()
 
     private val _connectionTestStatus = MutableStateFlow<String?>(null)
     val connectionTestStatus: StateFlow<String?> = _connectionTestStatus.asStateFlow()
@@ -103,21 +117,112 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshEngineVersion() {
         viewModelScope.launch {
-            _ytDlpVersion.value = ytEngine.getEngineVersion()
+            val v = ytEngine.getEngineVersion()
+            _ytDlpVersion.value = v
+            if (_ytDlpUpdateStatus.value == "UNKNOWN") {
+                _ytDlpUpdateStatus.value = "CHECKING"
+            }
+            ytEngine.refreshUpdateStatusIfNeeded(force = false)
+            _ytDlpVersion.value = settings.ytDlpInstalledVersion.ifBlank { v }
+            _ytDlpLatestVersion.value = settings.ytDlpLatestVersion
+            _ytDlpUpdateStatus.value = settings.ytDlpUpdateStatus
+            _ytDlpLastCheckedMs.value = settings.ytDlpLastCheckedEpochMs
         }
     }
 
     fun updateYtDlpEngine() {
         if (_isUpdatingEngine.value) return
         _isUpdatingEngine.value = true
+        _ytDlpUpdateStatus.value = "CHECKING"
         viewModelScope.launch {
             try {
                 val (status, version) = ytEngine.updateEngine()
-                _ytDlpVersion.value = "$version ($status)"
+                _ytDlpVersion.value = version
+                _ytDlpLatestVersion.value = settings.ytDlpLatestVersion
+                _ytDlpUpdateStatus.value = settings.ytDlpUpdateStatus
+                _ytDlpLastCheckedMs.value = settings.ytDlpLastCheckedEpochMs
+                if (status.startsWith("ERROR")) {
+                    _backupRestoreMessage.emit("yt-dlp update error: $status")
+                } else {
+                    _backupRestoreMessage.emit("yt-dlp $version ($status)")
+                }
             } catch (e: Exception) {
                 _ytDlpVersion.value = "Error: ${e.message}"
+                _ytDlpUpdateStatus.value = "UNKNOWN"
             } finally {
                 _isUpdatingEngine.value = false
+            }
+        }
+    }
+
+    fun exportTelemetry(uri: Uri) {
+        if (_isExportingTelemetry.value) return
+        _isExportingTelemetry.value = true
+        viewModelScope.launch {
+            try {
+                val count = withContext(Dispatchers.IO) {
+                    val app = getApplication<Application>()
+                    val reels = SavyorDatabase.getInstance(app).reelDao().getAllReelsOnce()
+                    val timedReels = reels.filter { it.totalProcessingDurationMs != null }
+
+                    val avgTotalMs = timedReels.mapNotNull { it.totalProcessingDurationMs }.average().takeIf { !it.isNaN() }?.toLong() ?: 0L
+                    val avgYtDlpMs = timedReels.mapNotNull { it.ytDlpDurationMs }.average().takeIf { !it.isNaN() }?.toLong() ?: 0L
+                    val avgAiMs = timedReels.mapNotNull { it.aiAnalysisDurationMs }.average().takeIf { !it.isNaN() }?.toLong() ?: 0L
+                    val avgCoverKb = timedReels.mapNotNull { it.coverSizeBytes }.average().takeIf { !it.isNaN() }?.div(1024.0) ?: 0.0
+                    val totalFrames = reels.sumOf { it.framesExtractedCount ?: 0 }
+
+                    val report = mapOf(
+                        "exportedAtEpochMs" to System.currentTimeMillis(),
+                        "device" to mapOf(
+                            "manufacturer" to Build.MANUFACTURER,
+                            "model" to Build.MODEL,
+                            "sdkInt" to Build.VERSION.SDK_INT,
+                            "supportedAbis" to Build.SUPPORTED_ABIS.toList(),
+                            "appVersion" to BuildConfig.VERSION_NAME,
+                            "ytDlpVersion" to settings.ytDlpInstalledVersion.ifBlank { _ytDlpVersion.value }
+                        ),
+                        "aggregate" to mapOf(
+                            "totalReels" to reels.size,
+                            "timedReelsCount" to timedReels.size,
+                            "avgTotalProcessingMs" to avgTotalMs,
+                            "avgYtDlpMs" to avgYtDlpMs,
+                            "avgGeminiMs" to avgAiMs,
+                            "avgCoverKb" to String.format("%.1f", avgCoverKb).toDouble(),
+                            "totalFramesExtracted" to totalFrames
+                        ),
+                        "reels" to reels.map { r ->
+                            mapOf(
+                                "shortcode" to r.shortcode,
+                                "title" to r.title,
+                                "status" to r.status,
+                                "processingState" to r.processingState,
+                                "ytDlpDurationMs" to r.ytDlpDurationMs,
+                                "frameExtractDurationMs" to r.frameExtractDurationMs,
+                                "aiAnalysisDurationMs" to r.aiAnalysisDurationMs,
+                                "totalProcessingDurationMs" to r.totalProcessingDurationMs,
+                                "videoDurationSec" to r.videoDurationSec,
+                                "downloadedVideoBytes" to r.downloadedVideoBytes,
+                                "coverSizeBytes" to r.coverSizeBytes,
+                                "framesExtractedCount" to r.framesExtractedCount,
+                                "linksExtractedCount" to r.linksExtractedCount,
+                                "aiModelUsed" to r.aiModelUsed,
+                                "processingError" to r.processingError
+                            )
+                        }
+                    )
+
+                    val json = GsonBuilder().setPrettyPrinting().serializeNulls().create().toJson(report)
+                    app.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(json.toByteArray(Charsets.UTF_8))
+                        out.flush()
+                    } ?: throw Exception("Could not open output stream for telemetry export")
+                    reels.size
+                }
+                _backupRestoreMessage.emit("Exported telemetry for $count reels")
+            } catch (e: Exception) {
+                _backupRestoreMessage.emit("Telemetry export failed: ${e.message}")
+            } finally {
+                _isExportingTelemetry.value = false
             }
         }
     }

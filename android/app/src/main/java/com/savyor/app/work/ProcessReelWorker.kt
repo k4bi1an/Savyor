@@ -1,6 +1,7 @@
 package com.savyor.app.work
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -57,19 +58,28 @@ class ProcessReelWorker(
         val frameExtractor = PipelineDependencies.frameExtractorOverride ?: FrameExtractor(applicationContext)
 
         var downloadedVideoFile: File? = null
+        val totalStartMs = SystemClock.elapsedRealtime()
 
         return try {
-            // 1. Mark as DOWNLOADING
-            reelDao.updateProcessingState(shortcode, "DOWNLOADING")
+            // 1. Mark as DOWNLOADING (status stays PROCESSING until everything succeeds)
+            reelDao.updateProcessingAndStatus(shortcode, "DOWNLOADING", "PROCESSING", null)
 
             // 2. Download reel
             Log.i(TAG, "Downloading reel: ${reel.cleanUrl}")
+            val ytStartMs = SystemClock.elapsedRealtime()
             val downloadResult = downloader.downloadReel(reel.cleanUrl, shortcode)
+            val ytDurationMs = SystemClock.elapsedRealtime() - ytStartMs
             downloadedVideoFile = downloadResult.videoFile
+            val downloadedBytes = downloadedVideoFile.length()
             val creator = downloadResult.creator.ifBlank { reel.creator }
 
             // 3. Mark as ANALYZING
-            reelDao.updateProcessingState(shortcode, "ANALYZING")
+            reelDao.updateProcessingAndStatus(shortcode, "ANALYZING", "PROCESSING", null)
+
+            // Read duration before building prompt so Gemini never hallucinates out-of-bounds timestamps
+            val videoDurationSec = (frameExtractor as? FrameExtractor)
+                ?.readVideoDurationSec(downloadedVideoFile)
+                ?.takeIf { it > 0 }
 
             // 4. Load recent 5 category corrections and dynamic categories
             val recentCorrections = correctionDao.getRecentCorrections(5)
@@ -80,17 +90,20 @@ class ProcessReelWorker(
                 originalCaption = downloadResult.caption,
                 creatorHandle = creator,
                 availableCategories = availableCategories,
-                recentCorrections = recentCorrections
+                recentCorrections = recentCorrections,
+                videoDurationSec = videoDurationSec
             )
 
             // 6. Call Gemini
-            Log.i(TAG, "Sending video to Gemini for multimodal analysis...")
+            Log.i(TAG, "Sending video to Gemini (${GeminiFilesClient.MODEL_NAME}) for multimodal analysis...")
+            val aiStartMs = SystemClock.elapsedRealtime()
             val apiKey = settings.geminiApiKey
             val analysis = geminiClient.analyzeReel(
                 apiKey = apiKey,
                 videoFile = downloadedVideoFile,
                 prompt = prompt
             )
+            val aiDurationMs = SystemClock.elapsedRealtime() - aiStartMs
 
             // Validate category against available list (fallback to "Other")
             val validatedCategory = if (availableCategories.any { it.equals(analysis.category, ignoreCase = true) }) {
@@ -99,16 +112,29 @@ class ProcessReelWorker(
                 "Other"
             }
 
+            // Deterministic URL normalization & regex rescue
+            val mergedLinks = LinkExtractor.extractAndMerge(
+                aiLinks = analysis.extractedResources,
+                caption = downloadResult.caption,
+                summary = analysis.summary,
+                takeaways = analysis.keyTakeaways,
+                transcript = analysis.transcript
+            )
+
             // 7. Extract thumbnail and key moment frames
             Log.i(TAG, "Extracting WebP frames via MediaMetadataRetriever...")
+            val frameStartMs = SystemClock.elapsedRealtime()
             val framesResult = frameExtractor.extractFrames(
                 videoFile = downloadedVideoFile,
                 shortcode = shortcode,
                 keyMoments = analysis.keyMoments
             )
+            val frameDurationMs = SystemClock.elapsedRealtime() - frameStartMs
             SnapshotCacheManager.enforceSnapshotLruCap(applicationContext.filesDir)
 
-            // 8. Update database with complete note
+            val totalDurationMs = SystemClock.elapsedRealtime() - totalStartMs
+
+            // 8. Update database with complete note & transition PROCESSING -> UNREAD
             val updatedReel = reel.copy(
                 creator = creator,
                 sourceLanguage = analysis.sourceLanguage,
@@ -121,23 +147,35 @@ class ProcessReelWorker(
                 keyTakeaways = gson.toJson(analysis.keyTakeaways),
                 keyMoments = gson.toJson(framesResult.keyMomentsWithImages),
                 structuredContent = gson.toJson(analysis.structuredContent),
-                extractedResources = gson.toJson(analysis.extractedResources),
+                extractedResources = gson.toJson(mergedLinks),
                 caveats = gson.toJson(analysis.caveats),
                 useWhen = analysis.useWhen,
                 visualMemory = analysis.visualMemory,
                 thumbnailPath = framesResult.thumbnailPath,
+                status = "UNREAD",
                 processingState = "COMPLETED",
                 errorMessage = null,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis(),
+                ytDlpDurationMs = ytDurationMs,
+                frameExtractDurationMs = frameDurationMs,
+                aiAnalysisDurationMs = aiDurationMs,
+                totalProcessingDurationMs = totalDurationMs,
+                videoDurationSec = videoDurationSec ?: framesResult.videoDurationSec.takeIf { it > 0 },
+                downloadedVideoBytes = downloadedBytes,
+                coverSizeBytes = framesResult.coverSizeBytes,
+                framesExtractedCount = framesResult.keyMomentsWithImages.size,
+                linksExtractedCount = mergedLinks.size,
+                aiModelUsed = GeminiFilesClient.MODEL_NAME,
+                processingError = null
             )
 
             reelDao.update(updatedReel)
-            Log.i(TAG, "Successfully processed note for reel $shortcode: \"${analysis.title}\"")
+            Log.i(TAG, "Successfully processed note for reel $shortcode in ${totalDurationMs}ms: \"${analysis.title}\"")
             Result.success()
         } catch (e: Exception) {
             val errorMsg = e.message ?: e.toString()
             Log.e(TAG, "Failed processing reel $shortcode: $errorMsg", e)
-            reelDao.updateProcessingState(shortcode, "FAILED", errorMsg)
+            reelDao.updateProcessingAndStatus(shortcode, "FAILED", "FAILED", errorMsg)
             Result.failure()
         } finally {
             // CRITICAL REQUIREMENT: Always delete temporary .mp4 so permanent video storage is 0 MB
