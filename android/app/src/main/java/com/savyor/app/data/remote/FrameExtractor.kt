@@ -2,6 +2,7 @@ package com.savyor.app.data.remote
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.util.Log
@@ -34,6 +35,7 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
 
     companion object {
         private const val TAG = "FrameExtractor"
+        private const val DARK_LUMA_THRESHOLD = 22.0
     }
 
     override suspend fun extractFrames(
@@ -50,13 +52,13 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
         try {
             retriever.setDataSource(videoFile.absolutePath)
             val durationMsStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-            val durationMs = durationMsStr?.toLongOrNull() ?: 10_000L
+            val durationMs = (durationMsStr?.toLongOrNull() ?: 10_000L).coerceAtLeast(500L)
+            val durationUs = durationMs * 1000L
 
-            // 1. Extract 360px thumbnail at 0.5s or 10% of duration
-            val thumbTimeUs = minOf(500_000L, (durationMs * 1000) / 10)
-            val thumbRaw = retriever.getFrameAtTime(thumbTimeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            // 1. Extract cover thumbnail: skip 0.0s black fade-in; sample 1.0s (or first key moment / midpoint if short or too dark)
+            val thumbRaw = extractBestCoverFrame(retriever, durationMs, durationUs, keyMoments)
             if (thumbRaw != null) {
-                val thumbScaled = scaleBitmapToWidth(thumbRaw, 360)
+                val thumbScaled = scaleBitmapToWidth(thumbRaw, 480)
                 val thumbFile = File(outputDir, "thumb.webp")
                 saveBitmapAsWebp(thumbScaled, thumbFile)
                 thumbnailPath = thumbFile.absolutePath
@@ -67,8 +69,9 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
             // 2. Extract up to 4 key-moment frames at 640px
             val momentsToExtract = keyMoments.take(4)
             momentsToExtract.forEachIndexed { index, moment ->
-                val timeUs = (moment.timestampSec.toLong() * 1_000_000L).coerceIn(0L, durationMs * 1000L)
-                val frameRaw = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                val rawTimeUs = (moment.timestampSec.toLong() * 1_000_000L)
+                    .coerceIn(0L, (durationUs - 100_000L).coerceAtLeast(0L))
+                val frameRaw = getFrameAtExactOrSync(retriever, rawTimeUs)
                 if (frameRaw != null) {
                     val frameScaled = scaleBitmapToWidth(frameRaw, 640)
                     val frameFile = File(outputDir, "moment_${index}_${moment.timestampSec}s.webp")
@@ -102,6 +105,72 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
         }
     }
 
+    private fun extractBestCoverFrame(
+        retriever: MediaMetadataRetriever,
+        durationMs: Long,
+        durationUs: Long,
+        keyMoments: List<KeyMomentAnalysis>
+    ): Bitmap? {
+        val candidatesUs = buildList {
+            // Primary target: 1.0s if video is long enough, else midpoint
+            if (durationMs >= 1_500L) {
+                add(1_000_000L)
+            } else {
+                add((durationUs / 2L).coerceAtLeast(100_000L))
+            }
+            // Fallback 1: first AI-identified key moment (> 0s)
+            keyMoments.firstOrNull { it.timestampSec > 0 }?.let { firstMoment ->
+                add((firstMoment.timestampSec.toLong() * 1_000_000L).coerceIn(0L, durationUs))
+            }
+            // Fallback 2: ~35% into video
+            add((durationUs * 35L) / 100L)
+        }.distinct()
+
+        var fallbackBitmap: Bitmap? = null
+        for (timeUs in candidatesUs) {
+            val frame = getFrameAtExactOrSync(retriever, timeUs) ?: continue
+            if (!isFrameTooDark(frame)) {
+                fallbackBitmap?.recycle()
+                return frame
+            }
+            if (fallbackBitmap == null) {
+                fallbackBitmap = frame
+            } else {
+                frame.recycle()
+            }
+        }
+        return fallbackBitmap
+    }
+
+    private fun getFrameAtExactOrSync(retriever: MediaMetadataRetriever, timeUs: Long): Bitmap? {
+        return retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+            ?: retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+    }
+
+    private fun isFrameTooDark(bitmap: Bitmap): Boolean {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return true
+
+        val grid = 12
+        var totalLuma = 0.0
+        var samples = 0
+        for (gx in 1 until grid) {
+            val x = (w * gx) / grid
+            for (gy in 1 until grid) {
+                val y = (h * gy) / grid
+                val pixel = bitmap.getPixel(x, y)
+                val r = Color.red(pixel)
+                val g = Color.green(pixel)
+                val b = Color.blue(pixel)
+                totalLuma += 0.299 * r + 0.587 * g + 0.114 * b
+                samples++
+            }
+        }
+        val avgLuma = if (samples > 0) totalLuma / samples else 0.0
+        return avgLuma < DARK_LUMA_THRESHOLD
+    }
+
     private fun scaleBitmapToWidth(bitmap: Bitmap, targetWidth: Int): Bitmap {
         if (bitmap.width <= targetWidth) return bitmap
         val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
@@ -117,7 +186,7 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
             @Suppress("DEPRECATION")
             Bitmap.CompressFormat.WEBP
         }
-        bitmap.compress(format, 80, fos)
+        bitmap.compress(format, 82, fos)
         fos.flush()
         fos.close()
     }

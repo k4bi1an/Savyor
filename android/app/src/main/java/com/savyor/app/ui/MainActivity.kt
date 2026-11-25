@@ -5,9 +5,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
@@ -28,7 +35,7 @@ class MainActivity : ComponentActivity() {
 
     private val libraryViewModel: LibraryViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
-    private val targetRouteState = androidx.compose.runtime.mutableStateOf<String?>(null)
+    private val targetRouteState = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,7 +50,7 @@ class MainActivity : ComponentActivity() {
                     val navController = rememberNavController()
 
                     val targetRoute = targetRouteState.value
-                    androidx.compose.runtime.LaunchedEffect(targetRoute) {
+                    LaunchedEffect(targetRoute) {
                         if (!targetRoute.isNullOrBlank()) {
                             if (targetRoute == Screen.Library.route) {
                                 navController.popBackStack(Screen.Library.route, false)
@@ -55,7 +62,23 @@ class MainActivity : ComponentActivity() {
 
                     NavHost(
                         navController = navController,
-                        startDestination = Screen.Library.route
+                        startDestination = Screen.Library.route,
+                        enterTransition = {
+                            fadeIn(animationSpec = tween(240)) +
+                                slideInHorizontally(animationSpec = tween(240)) { it / 10 }
+                        },
+                        exitTransition = {
+                            fadeOut(animationSpec = tween(240)) +
+                                slideOutHorizontally(animationSpec = tween(240)) { -it / 16 }
+                        },
+                        popEnterTransition = {
+                            fadeIn(animationSpec = tween(240)) +
+                                slideInHorizontally(animationSpec = tween(240)) { -it / 16 }
+                        },
+                        popExitTransition = {
+                            fadeOut(animationSpec = tween(240)) +
+                                slideOutHorizontally(animationSpec = tween(240)) { it / 10 }
+                        }
                     ) {
                         composable(Screen.Library.route) {
                             LibraryScreen(
