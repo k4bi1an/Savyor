@@ -33,15 +33,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -66,6 +68,7 @@ import com.savyor.app.domain.model.ExtractedResource
 import com.savyor.app.domain.model.StructuredContent
 import com.savyor.app.ui.components.StatusBadge
 import com.savyor.app.ui.components.springPressClickable
+import com.savyor.app.ui.screens.library.CrystalIconWell
 import com.savyor.app.ui.theme.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -178,218 +181,21 @@ fun ReelDetailScreen(
 
     val tabPagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
 
-    Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing,
-        topBar = {
-            Column(modifier = Modifier.background(colors.glassSurface)) {
-                TopAppBar(
-                    title = {
-                        AnimatedVisibility(
-                            visible = showTopBarTitle,
-                            enter = fadeIn(tween(180)),
-                            exit = fadeOut(tween(180))
-                        ) {
-                            Text(
-                                text = currentReel.title.ifBlank { "Reel @${currentReel.shortcode}" },
-                                fontFamily = NewsreaderFontFamily,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onNavigateBack) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    },
-                    actions = {
-                        // Star / Favorite Toggle
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.toggleStarred()
-                        }) {
-                            Icon(
-                                imageVector = if (currentReel.isStarred) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                                contentDescription = if (currentReel.isStarred) "Unstar Reel" else "Star Reel",
-                                tint = if (currentReel.isStarred) Color(0xFFD4A843) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-                        // Copy Markdown
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            copyMarkdownNotes(context, currentReel, keyTakeaways, structuredContent, extractedResources)
-                        }) {
-                            Icon(
-                                Icons.Outlined.ContentCopy,
-                                contentDescription = "Copy Markdown",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        // Open in Instagram
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(currentReel.cleanUrl))
-                            context.startActivity(browserIntent)
-                        }) {
-                            Icon(
-                                Icons.AutoMirrored.Outlined.OpenInNew,
-                                contentDescription = "Open in Instagram",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        // Overflow Menu
-                        Box {
-                            IconButton(onClick = { showMoreMenu = true }) {
-                                Icon(
-                                    Icons.Default.MoreVert,
-                                    contentDescription = "More Options",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            DropdownMenu(
-                                expanded = showMoreMenu,
-                                onDismissRequest = { showMoreMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Share note", fontFamily = InterFontFamily) },
-                                    leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        shareFormattedNote(context, currentReel, keyTakeaways, structuredContent, extractedResources)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Re-analyze reel", fontFamily = InterFontFamily) },
-                                    leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        viewModel.reanalyzeReel {
-                                            Toast.makeText(context, "Reel queued for re-analysis", Toast.LENGTH_SHORT).show()
-                                            onNavigateBack()
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Change Category", fontFamily = InterFontFamily) },
-                                    leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showCategoryMenu = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Change Status", fontFamily = InterFontFamily) },
-                                    leadingIcon = { Icon(Icons.Outlined.CheckCircle, contentDescription = null) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showStatusMenu = true
-                                    }
-                                )
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("Delete Reel", fontFamily = InterFontFamily, color = Color(0xFFB3382C)) },
-                                    leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = Color(0xFFB3382C)) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showDeleteDialog = true
-                                    }
-                                )
-                            }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent
-                    )
-                )
-                HorizontalDivider(
-                    color = colors.borderSubtle,
-                    thickness = 1.dp
-                )
-            }
-        },
-        bottomBar = {
-            AnimatedVisibility(
-                visible = isEditingMyNote,
-                enter = slideInVertically { it } + fadeIn(tween(180)),
-                exit = slideOutVertically { it } + fadeOut(tween(150))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .imePadding()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .savyorGlass(shape = RoundedCornerShape(18.dp), elevated = true)
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Editing My Note",
-                            fontFamily = InterFontFamily,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.inkSecondary
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(
-                                onClick = {
-                                    myNoteDraft = currentReel.userNote
-                                    isEditingMyNote = false
-                                }
-                            ) {
-                                Text(
-                                    "Cancel",
-                                    fontFamily = InterFontFamily,
-                                    fontSize = 13.sp,
-                                    color = colors.inkSecondary
-                                )
-                            }
-                            Button(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.updateUserNote(myNoteDraft.trim())
-                                    isEditingMyNote = false
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = colors.ctaBg,
-                                    contentColor = colors.ctaFg
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                                Text("Save Note", fontFamily = InterFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        containerColor = colors.bgCanvas
-    ) { paddingValues ->
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.bgCanvas)
+    ) {
         LazyColumn(
             state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
+            contentPadding = PaddingValues(
+                top = statusBarTop + 76.dp,
+                bottom = navBarBottom + 80.dp
+            ),
+            modifier = Modifier.fillMaxSize()
         ) {
             // Calm Editorial Header
             item {
@@ -410,7 +216,7 @@ fun ReelDetailScreen(
                             ) {
                                 Text(
                                     text = currentReel.category,
-                                    fontFamily = InterFontFamily,
+                                    fontFamily = SavyorSansFamily,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = MaterialTheme.colorScheme.primary
@@ -429,7 +235,7 @@ fun ReelDetailScreen(
                             ) {
                                 categories.forEach { cat ->
                                     DropdownMenuItem(
-                                        text = { Text(cat.name, fontFamily = InterFontFamily) },
+                                        text = { Text(cat.name, fontFamily = SavyorSansFamily) },
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             viewModel.updateCategory(cat.name)
@@ -441,8 +247,8 @@ fun ReelDetailScreen(
                         }
 
                         Text(
-                            text = " · ",
-                            fontFamily = InterFontFamily,
+                            text = " Â· ",
+                            fontFamily = SavyorSansFamily,
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -463,7 +269,7 @@ fun ReelDetailScreen(
                             ) {
                                 listOf("UNREAD", "REVIEWED", "TRIED", "ARCHIVED").forEach { st ->
                                     DropdownMenuItem(
-                                        text = { Text(st, fontFamily = InterFontFamily) },
+                                        text = { Text(st, fontFamily = SavyorSansFamily) },
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             viewModel.updateStatus(st)
@@ -476,8 +282,8 @@ fun ReelDetailScreen(
 
                         if (currentReel.sourceLanguage.isNotBlank() && !currentReel.sourceLanguage.equals("English", ignoreCase = true)) {
                             Text(
-                                text = " · ${currentReel.sourceLanguage} → English",
-                                fontFamily = InterFontFamily,
+                                text = " Â· ${currentReel.sourceLanguage} â†’ English",
+                                fontFamily = SavyorSansFamily,
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -488,14 +294,11 @@ fun ReelDetailScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Title in 28sp Newsreader Serif
+                    // Hero Title (24sp Bold SansSerif)
                     Text(
                         text = currentReel.title.ifBlank { "Reel @${currentReel.shortcode}" },
-                        fontFamily = NewsreaderFontFamily,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        lineHeight = 34.sp
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = colors.inkPrimary
                     )
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -504,9 +307,8 @@ fun ReelDetailScreen(
                     val creatorText = if (currentReel.creator.isNotBlank()) "@${currentReel.creator}" else "@${currentReel.shortcode}"
                     Text(
                         text = creatorText,
-                        fontFamily = InterFontFamily,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.inkSecondary
                     )
 
                     // Primary Highlighted Architectural Use-When Block
@@ -517,42 +319,40 @@ fun ReelDetailScreen(
                             ""
                         ).trim()
 
+                        val useWhenShape = RoundedCornerShape(14.dp)
                         Surface(
-                            shape = RoundedCornerShape(14.dp),
+                            shape = useWhenShape,
                             color = colors.surfaceCard,
-                            border = BorderStroke(1.dp, colors.borderSubtle),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .savyorCardBorder(useWhenShape)
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .height(IntrinsicSize.Min)
                                     .padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .width(3.dp)
-                                        .height(30.dp)
+                                        .fillMaxHeight()
                                         .clip(RoundedCornerShape(2.dp))
-                                        .background(colors.inkPrimary)
+                                        .background(colors.ctaBg)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
                                     Text(
                                         text = "USE WHEN",
-                                        fontFamily = InterFontFamily,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        letterSpacing = 0.8.sp,
+                                        style = MaterialTheme.typography.labelSmall,
                                         color = colors.inkMuted
                                     )
                                     Spacer(modifier = Modifier.height(3.dp))
                                     Text(
                                         text = cleanUseWhen,
-                                        fontFamily = InterFontFamily,
-                                        fontSize = 14.sp,
+                                        style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Medium,
-                                        lineHeight = 20.sp,
                                         color = colors.inkPrimary
                                     )
                                 }
@@ -583,7 +383,7 @@ fun ReelDetailScreen(
                     Column(modifier = Modifier.padding(bottom = 18.dp)) {
                         Text(
                             text = "VISUAL MOMENTS (${allFrames.size})",
-                            fontFamily = InterFontFamily,
+                            fontFamily = SavyorSansFamily,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 0.8.sp,
@@ -607,11 +407,11 @@ fun ReelDetailScreen(
                 }
             }
 
-            // Segmented Tab Rail (surfaceRecessed track + surfaceCard active pill)
+            // Segmented Crystal Tab Rail (RoundedCornerShape(16.dp) recessed track + CrystalTier.PILL active pill)
             item {
                 val tabTitles = listOf("Notes", "Transcript", "Links (${extractedResources.size})")
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = colors.surfaceRecessed,
                     border = BorderStroke(1.dp, colors.borderSubtle),
                     modifier = Modifier
@@ -626,32 +426,39 @@ fun ReelDetailScreen(
                     ) {
                         tabTitles.forEachIndexed { index, title ->
                             val selected = tabPagerState.currentPage == index
-                            Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    coroutineScope.launch {
-                                        tabPagerState.animateScrollToPage(index)
-                                    }
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (selected) colors.surfaceCard else Color.Transparent,
-                                border = if (selected) BorderStroke(1.dp, colors.borderSubtle) else null,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.padding(vertical = 8.dp)
-                                ) {
-                                    Text(
-                                        text = title,
-                                        fontFamily = InterFontFamily,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                                        color = if (selected) colors.inkPrimary else colors.inkMuted,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                            val pillShape = RoundedCornerShape(12.dp)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .then(
+                                        if (selected) {
+                                            Modifier.savyorLiquidCrystal(
+                                                tier = CrystalTier.PILL,
+                                                shape = pillShape,
+                                                activeRim = true
+                                            )
+                                        } else {
+                                            Modifier
+                                        }
                                     )
-                                }
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        coroutineScope.launch {
+                                            tabPagerState.animateScrollToPage(index)
+                                        }
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = title,
+                                    fontFamily = SavyorSansFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                    color = if (selected) colors.inkPrimary else colors.inkMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
@@ -685,6 +492,217 @@ fun ReelDetailScreen(
                 Spacer(modifier = Modifier.height(48.dp))
             }
         }
+
+        // Top Status-Bar Scrim
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(statusBarTop + 20.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(colors.bgCanvas.copy(alpha = 0.85f), Color.Transparent)
+                    )
+                )
+        )
+
+        // Floating Liquid Crystal Header Capsule
+        val capsuleShape = RoundedCornerShape(29.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(start = 12.dp, end = 12.dp, top = 6.dp)
+                .height(56.dp)
+                .savyorLiquidCrystal(tier = CrystalTier.CHROME, shape = capsuleShape)
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                CrystalIconWell(
+                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Back",
+                    size = 36.dp,
+                    onClick = onNavigateBack
+                )
+                AnimatedVisibility(
+                    visible = showTopBarTitle,
+                    enter = fadeIn(tween(180)),
+                    exit = fadeOut(tween(180)),
+                    modifier = Modifier.padding(start = 10.dp, end = 8.dp)
+                ) {
+                    Text(
+                        text = currentReel.title.ifBlank { "Reel @${currentReel.shortcode}" },
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = colors.inkPrimary
+                    )
+                }
+            }
+
+            // Right Cluster: Star, Copy, Open Link, More
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                CrystalIconWell(
+                    icon = if (currentReel.isStarred) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                    contentDescription = if (currentReel.isStarred) "Unstar Reel" else "Star Reel",
+                    size = 34.dp,
+                    tint = if (currentReel.isStarred) Color(0xFFFBBF24) else colors.inkPrimary,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        viewModel.toggleStarred()
+                    }
+                )
+                CrystalIconWell(
+                    icon = Icons.Outlined.ContentCopy,
+                    contentDescription = "Copy Markdown",
+                    size = 34.dp,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        copyMarkdownNotes(context, currentReel, keyTakeaways, structuredContent, extractedResources)
+                    }
+                )
+                CrystalIconWell(
+                    icon = Icons.AutoMirrored.Outlined.OpenInNew,
+                    contentDescription = "Open in Instagram",
+                    size = 34.dp,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(currentReel.cleanUrl))
+                        context.startActivity(browserIntent)
+                    }
+                )
+                Box {
+                    CrystalIconWell(
+                        icon = Icons.Default.MoreVert,
+                        contentDescription = "More Options",
+                        size = 34.dp,
+                        onClick = { showMoreMenu = true }
+                    )
+                    DropdownMenu(
+                        expanded = showMoreMenu,
+                        onDismissRequest = { showMoreMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Share note", fontFamily = SavyorSansFamily) },
+                            leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                            onClick = {
+                                showMoreMenu = false
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                shareFormattedNote(context, currentReel, keyTakeaways, structuredContent, extractedResources)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Re-analyze reel", fontFamily = SavyorSansFamily) },
+                            leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
+                            onClick = {
+                                showMoreMenu = false
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.reanalyzeReel {
+                                    Toast.makeText(context, "Reel queued for re-analysis", Toast.LENGTH_SHORT).show()
+                                    onNavigateBack()
+                                }
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Change Category", fontFamily = SavyorSansFamily) },
+                            leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
+                            onClick = {
+                                showMoreMenu = false
+                                showCategoryMenu = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Change Status", fontFamily = SavyorSansFamily) },
+                            leadingIcon = { Icon(Icons.Outlined.CheckCircle, contentDescription = null) },
+                            onClick = {
+                                showMoreMenu = false
+                                showStatusMenu = true
+                            }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Delete Reel", fontFamily = SavyorSansFamily, color = colors.errorFg) },
+                            leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = colors.errorFg) },
+                            onClick = {
+                                showMoreMenu = false
+                                showDeleteDialog = true
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Sticky Floating Liquid Crystal Editing Note Bar
+        AnimatedVisibility(
+            visible = isEditingMyNote,
+            enter = slideInVertically { it } + fadeIn(tween(180)),
+            exit = slideOutVertically { it } + fadeOut(tween(150)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .imePadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            val editBarShape = RoundedCornerShape(26.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .savyorLiquidCrystal(tier = CrystalTier.CHROME, shape = editBarShape)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Editing Note",
+                    fontFamily = SavyorSansFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.inkSecondary,
+                    modifier = Modifier.padding(start = 6.dp)
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(
+                        onClick = {
+                            myNoteDraft = currentReel.userNote
+                            isEditingMyNote = false
+                        }
+                    ) {
+                        Text(
+                            "Cancel",
+                            fontFamily = SavyorSansFamily,
+                            fontSize = 13.sp,
+                            color = colors.inkSecondary
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            viewModel.updateUserNote(myNoteDraft.trim())
+                            isEditingMyNote = false
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.ctaBg,
+                            contentColor = colors.ctaFg
+                        ),
+                        shape = RoundedCornerShape(18.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text("Save Note", fontFamily = SavyorSansFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
     }
 
     // Fullscreen Edge-to-Edge Dark Lightbox Viewer
@@ -703,7 +721,7 @@ fun ReelDetailScreen(
             title = {
                 Text(
                     "Delete Reel Note?",
-                    fontFamily = NewsreaderFontFamily,
+                    fontFamily = SavyorSansFamily,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 20.sp
                 )
@@ -711,7 +729,7 @@ fun ReelDetailScreen(
             text = {
                 Text(
                     "This will permanently delete this note and its extracted WebP visual snapshots.",
-                    fontFamily = InterFontFamily,
+                    fontFamily = SavyorSansFamily,
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -725,12 +743,12 @@ fun ReelDetailScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3382C)),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("Delete", fontFamily = InterFontFamily)
+                    Text("Delete", fontFamily = SavyorSansFamily)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel", fontFamily = InterFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Cancel", fontFamily = SavyorSansFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -766,21 +784,23 @@ private fun MomentPortraitCard(
                 contentScale = ContentScale.Crop
             )
 
-            // Frosted dark-glass timestamp pill in bottom-left corner
+            // Frosted Liquid Crystal timestamp pill in bottom-left corner
             Surface(
-                color = Color(0xB80B0D0C),
-                shape = RoundedCornerShape(6.dp),
+                color = Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(8.dp)
+                    .savyorLiquidCrystal(tier = CrystalTier.THUMB_BADGE, shape = RoundedCornerShape(8.dp))
             ) {
                 Text(
                     text = frame.badgeText,
-                    fontFamily = InterFontFamily,
+                    fontFamily = SavyorMonoFamily,
                     fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    fontWeight = FontWeight.Bold,
+                    color = LocalSavyorColors.current.inkPrimary,
+                    letterSpacing = 0.7.sp,
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                 )
             }
         }
@@ -789,7 +809,7 @@ private fun MomentPortraitCard(
 
         Text(
             text = frame.caption,
-            fontFamily = InterFontFamily,
+            fontFamily = SavyorSansFamily,
             fontSize = 12.sp,
             lineHeight = 16.sp,
             maxLines = 2,
@@ -920,7 +940,7 @@ private fun FullscreenLightboxDialog(
                 ) {
                     Text(
                         text = "${pagerState.currentPage + 1} / ${frames.size}",
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color.White,
@@ -960,7 +980,7 @@ private fun FullscreenLightboxDialog(
                     ) {
                         Text(
                             text = activeFrame.badgeText,
-                            fontFamily = InterFontFamily,
+                            fontFamily = SavyorSansFamily,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White,
@@ -970,7 +990,7 @@ private fun FullscreenLightboxDialog(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = activeFrame.caption,
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 15.sp,
                         lineHeight = 22.sp,
                         color = Color.White.copy(alpha = 0.92f)
@@ -992,7 +1012,7 @@ private fun NotesTabContent(
         // Summary
         Text(
             text = "SUMMARY",
-            fontFamily = InterFontFamily,
+            fontFamily = SavyorSansFamily,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
@@ -1001,7 +1021,7 @@ private fun NotesTabContent(
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = reel.summary.ifBlank { "No summary available." },
-            fontFamily = InterFontFamily,
+            fontFamily = SavyorSansFamily,
             fontSize = 15.5.sp,
             lineHeight = 24.sp,
             color = MaterialTheme.colorScheme.onBackground
@@ -1013,7 +1033,7 @@ private fun NotesTabContent(
         if (keyTakeaways.isNotEmpty()) {
             Text(
                 text = "KEY TAKEAWAYS",
-                fontFamily = InterFontFamily,
+                fontFamily = SavyorSansFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary,
@@ -1034,7 +1054,7 @@ private fun NotesTabContent(
                     )
                     Text(
                         text = takeaway,
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 15.5.sp,
                         lineHeight = 24.sp,
                         color = MaterialTheme.colorScheme.onBackground
@@ -1074,7 +1094,7 @@ private fun NotesTabContent(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "CAVEATS & CONTEXT",
-                            fontFamily = InterFontFamily,
+                            fontFamily = SavyorSansFamily,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 0.8.sp,
@@ -1088,8 +1108,8 @@ private fun NotesTabContent(
                             verticalAlignment = Alignment.Top
                         ) {
                             Text(
-                                text = "•",
-                                fontFamily = InterFontFamily,
+                                text = "â€¢",
+                                fontFamily = SavyorSansFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = caveatText,
@@ -1097,7 +1117,7 @@ private fun NotesTabContent(
                             )
                             Text(
                                 text = caveat,
-                                fontFamily = InterFontFamily,
+                                fontFamily = SavyorSansFamily,
                                 fontSize = 14.sp,
                                 lineHeight = 21.sp,
                                 color = caveatText
@@ -1119,7 +1139,7 @@ private fun NotesTabContent(
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
                         text = "VISUAL MEMORY CUE",
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 0.7.sp,
@@ -1128,7 +1148,7 @@ private fun NotesTabContent(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = reel.visualMemory,
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 12.5.sp,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1168,7 +1188,7 @@ private fun TranscriptTabContent(reel: ReelEntity) {
                         ) {
                             Text(
                                 text = "English",
-                                fontFamily = InterFontFamily,
+                                fontFamily = SavyorSansFamily,
                                 fontSize = 12.sp,
                                 fontWeight = if (!showOriginal) FontWeight.SemiBold else FontWeight.Normal,
                                 color = if (!showOriginal) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
@@ -1185,7 +1205,7 @@ private fun TranscriptTabContent(reel: ReelEntity) {
                         ) {
                             Text(
                                 text = "Original (${reel.sourceLanguage})",
-                                fontFamily = InterFontFamily,
+                                fontFamily = SavyorSansFamily,
                                 fontSize = 12.sp,
                                 fontWeight = if (showOriginal) FontWeight.SemiBold else FontWeight.Normal,
                                 color = if (showOriginal) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
@@ -1218,7 +1238,7 @@ private fun TranscriptTabContent(reel: ReelEntity) {
             ) {
                 Text(
                     text = activeTranscript.ifBlank { "No transcript available." },
-                    fontFamily = InterFontFamily,
+                    fontFamily = SavyorSansFamily,
                     fontSize = 15.sp,
                     lineHeight = 24.sp,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -1237,7 +1257,7 @@ private fun LinksTabContent(extractedResources: List<ExtractedResource>) {
         if (extractedResources.isEmpty()) {
             Text(
                 text = "No external resources or URLs were mentioned in this reel.",
-                fontFamily = InterFontFamily,
+                fontFamily = SavyorSansFamily,
                 fontSize = 14.sp,
                 lineHeight = 22.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1255,7 +1275,7 @@ private fun LinksTabContent(extractedResources: List<ExtractedResource>) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
                             text = resource.name,
-                            fontFamily = InterFontFamily,
+                            fontFamily = SavyorSansFamily,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp,
                             color = MaterialTheme.colorScheme.onSurface
@@ -1264,7 +1284,7 @@ private fun LinksTabContent(extractedResources: List<ExtractedResource>) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = resource.description,
-                                fontFamily = InterFontFamily,
+                                fontFamily = SavyorSansFamily,
                                 fontSize = 13.5.sp,
                                 lineHeight = 20.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1293,7 +1313,7 @@ private fun LinksTabContent(extractedResources: List<ExtractedResource>) {
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     "Open Link",
-                                    fontFamily = InterFontFamily,
+                                    fontFamily = SavyorSansFamily,
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
@@ -1321,7 +1341,7 @@ private fun LinksTabContent(extractedResources: List<ExtractedResource>) {
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     "Search Web",
-                                    fontFamily = InterFontFamily,
+                                    fontFamily = SavyorSansFamily,
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
@@ -1342,7 +1362,7 @@ fun StructuredContentView(content: StructuredContent) {
     Column {
         Text(
             text = "DETAILS (${content.noteType.uppercase()})",
-            fontFamily = InterFontFamily,
+            fontFamily = SavyorSansFamily,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.primary,
@@ -1352,15 +1372,15 @@ fun StructuredContentView(content: StructuredContent) {
 
         // Prerequisites
         if (!content.prerequisites.isNullOrEmpty()) {
-            Text("Prerequisites", fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Prerequisites", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(6.dp))
             content.prerequisites.forEach { prereq ->
                 Row(
                     modifier = Modifier.padding(vertical = 3.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    Text("• ", fontFamily = InterFontFamily, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Text(prereq, fontFamily = InterFontFamily, fontSize = 15.sp, lineHeight = 23.sp)
+                    Text("â€¢ ", fontFamily = SavyorSansFamily, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(prereq, fontFamily = SavyorSansFamily, fontSize = 15.sp, lineHeight = 23.sp)
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -1368,7 +1388,7 @@ fun StructuredContentView(content: StructuredContent) {
 
         // Recipes: Neat Ingredient Rows
         if (!content.ingredients.isNullOrEmpty()) {
-            Text("Ingredients", fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Ingredients", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(6.dp))
             content.ingredients.forEachIndexed { idx, ing ->
                 Row(
@@ -1380,7 +1400,7 @@ fun StructuredContentView(content: StructuredContent) {
                 ) {
                     Text(
                         text = ing.item,
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 15.5.sp,
                         lineHeight = 22.sp,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -1389,7 +1409,7 @@ fun StructuredContentView(content: StructuredContent) {
                     if (ing.quantity.isNotBlank()) {
                         Text(
                             text = ing.quantity,
-                            fontFamily = InterFontFamily,
+                            fontFamily = SavyorSansFamily,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
@@ -1408,7 +1428,7 @@ fun StructuredContentView(content: StructuredContent) {
 
         // Recipes / Tutorials: Circular Numbered Step Badges
         if (!content.steps.isNullOrEmpty()) {
-            Text("Steps", fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Steps", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(8.dp))
             content.steps.forEach { step ->
                 Row(
@@ -1425,7 +1445,7 @@ fun StructuredContentView(content: StructuredContent) {
                     ) {
                         Text(
                             text = "${step.stepNumber}",
-                            fontFamily = InterFontFamily,
+                            fontFamily = SavyorSansFamily,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
@@ -1433,7 +1453,7 @@ fun StructuredContentView(content: StructuredContent) {
                     }
                     Text(
                         text = step.instruction,
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 15.5.sp,
                         lineHeight = 24.sp,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -1446,7 +1466,7 @@ fun StructuredContentView(content: StructuredContent) {
 
         // Workouts: Exercises
         if (!content.exercises.isNullOrEmpty()) {
-            Text("Exercises", fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Exercises", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(8.dp))
             content.exercises.forEachIndexed { idx, exercise ->
                 Row(
@@ -1463,7 +1483,7 @@ fun StructuredContentView(content: StructuredContent) {
                     ) {
                         Text(
                             text = "${idx + 1}",
-                            fontFamily = InterFontFamily,
+                            fontFamily = SavyorSansFamily,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
@@ -1471,7 +1491,7 @@ fun StructuredContentView(content: StructuredContent) {
                     }
                     Text(
                         text = exercise,
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 15.5.sp,
                         lineHeight = 24.sp,
                         modifier = Modifier.weight(1f)
@@ -1483,7 +1503,7 @@ fun StructuredContentView(content: StructuredContent) {
 
         // Code: Commands
         if (!content.commands.isNullOrEmpty()) {
-            Text("Commands", fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Commands", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(6.dp))
             content.commands.forEach { cmd ->
                 Surface(
@@ -1526,7 +1546,7 @@ fun StructuredContentView(content: StructuredContent) {
 
         // Code: Snippets
         if (!content.codeSnippets.isNullOrEmpty()) {
-            Text("Code Snippets", fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Code Snippets", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(6.dp))
             content.codeSnippets.forEach { snippet ->
                 Surface(
@@ -1566,7 +1586,7 @@ fun StructuredContentView(content: StructuredContent) {
 
         // Listicles / Recommendations
         if (!content.items.isNullOrEmpty()) {
-            Text("Items", fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Items", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(8.dp))
             content.items.forEachIndexed { idx, item ->
                 Row(
@@ -1583,7 +1603,7 @@ fun StructuredContentView(content: StructuredContent) {
                     ) {
                         Text(
                             text = "${idx + 1}",
-                            fontFamily = InterFontFamily,
+                            fontFamily = SavyorSansFamily,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
@@ -1591,7 +1611,7 @@ fun StructuredContentView(content: StructuredContent) {
                     }
                     Text(
                         text = item,
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 15.5.sp,
                         lineHeight = 24.sp,
                         color = MaterialTheme.colorScheme.onBackground,
@@ -1661,7 +1681,7 @@ fun buildFormattedNoteText(
         if (resources.isNotEmpty()) {
             appendLine("## Links & Resources")
             resources.forEach { res ->
-                val urlPart = if (res.url.isNotBlank()) " — ${res.url}" else ""
+                val urlPart = if (res.url.isNotBlank()) " â€” ${res.url}" else ""
                 appendLine("- **${res.name}**$urlPart: ${res.description}")
             }
             appendLine()
@@ -1742,7 +1762,7 @@ fun MyNoteCard(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "MY NOTE",
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.inkMuted,
@@ -1777,7 +1797,7 @@ fun MyNoteCard(
                     placeholder = {
                         Text(
                             text = "Add personal observations, recipe tweaks, or action items...",
-                            fontFamily = InterFontFamily,
+                            fontFamily = SavyorSansFamily,
                             fontSize = 13.sp,
                             color = colors.inkMuted
                         )
@@ -1786,7 +1806,7 @@ fun MyNoteCard(
                     shape = RoundedCornerShape(10.dp),
                     minLines = 3,
                     textStyle = LocalTextStyle.current.copy(
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 13.5.sp,
                         lineHeight = 19.sp,
                         color = colors.inkPrimary
@@ -1796,7 +1816,7 @@ fun MyNoteCard(
                 if (userNote.isNotBlank()) {
                     Text(
                         text = userNote,
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 13.5.sp,
                         lineHeight = 20.sp,
                         color = colors.inkPrimary
@@ -1804,7 +1824,7 @@ fun MyNoteCard(
                 } else {
                     Text(
                         text = "Tap to add personal observations, recipe tweaks, or reminders...",
-                        fontFamily = InterFontFamily,
+                        fontFamily = SavyorSansFamily,
                         fontSize = 12.5.sp,
                         color = colors.inkMuted
                     )

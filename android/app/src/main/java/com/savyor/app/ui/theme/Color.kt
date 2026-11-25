@@ -30,11 +30,34 @@ data class SavyorColors(
     val borderFocus: Color,
     val ctaBg: Color,
     val ctaFg: Color,
-    // Liquid Glass tokens
-    val glassSurface: Color,
-    val glassSurfaceElevated: Color,
-    val glassBorderTop: Color,
-    val glassBorderBottom: Color,
+    // CrystalTier.CHROME tokens
+    val chromeGradTop: Color,
+    val chromeGradBottom: Color,
+    val chromeDomeTop: Color,
+    val chromeDomeMid: Color,
+    val chromeRim0: Color,
+    val chromeRim28: Color,
+    val chromeRim55: Color,
+    val chromeRim82: Color,
+    val chromeRim100: Color,
+    val chromeBottomCaustic: Color,
+    // CrystalTier.PILL tokens
+    val pillFill: Color,
+    val pillSheenTop: Color,
+    val pillRimTop: Color,
+    val pillRimBottom: Color,
+    // CrystalTier.THUMB_BADGE tokens
+    val thumbBadgeFill: Color,
+    val thumbBadgeRimTop: Color,
+    val thumbBadgeRimBottom: Color,
+    // CrystalTier.SHEET tokens
+    val sheetFill: Color,
+    val sheetRimTop: Color,
+    val sheetRimBottom: Color,
+    val sheetCausticGlow: Color,
+    // Sculpted Card Border
+    val cardRimTop: Color,
+    val cardRimBottom: Color,
     // Status badge tokens
     val unreadFg: Color,
     val unreadBg: Color,
@@ -66,10 +89,35 @@ val ObsidianSavyorColors = SavyorColors(
     borderFocus = Color(0xFF71717A),
     ctaBg = Color(0xFFF4F4F5),
     ctaFg = Color(0xFF09090B),
-    glassSurface = Color(0xCC141418),
-    glassSurfaceElevated = Color(0xD91C1C22),
-    glassBorderTop = Color(0x38FFFFFF),
-    glassBorderBottom = Color(0x12FFFFFF),
+    // CHROME (fallback opaque-calibrated frosted obsidian for Compose < 1.7)
+    chromeGradTop = Color(0xE816161C),
+    chromeGradBottom = Color(0xF00F0F14),
+    chromeDomeTop = Color(0x24FFFFFF),
+    chromeDomeMid = Color(0x08E0F2FE),
+    chromeRim0 = Color(0x7AFFFFFF),
+    chromeRim28 = Color(0x28BAE6FD),
+    chromeRim55 = Color(0x14FFFFFF),
+    chromeRim82 = Color(0x20E9D5FF),
+    chromeRim100 = Color(0x38FFFFFF),
+    chromeBottomCaustic = Color(0x14FFFFFF),
+    // PILL
+    pillFill = Color(0xB8191921),
+    pillSheenTop = Color(0x1CFFFFFF),
+    pillRimTop = Color(0x5CFFFFFF),
+    pillRimBottom = Color(0x14FFFFFF),
+    // THUMB_BADGE
+    thumbBadgeFill = Color(0xCC0D0D12),
+    thumbBadgeRimTop = Color(0x66FFFFFF),
+    thumbBadgeRimBottom = Color(0x18FFFFFF),
+    // SHEET
+    sheetFill = Color(0xEB15151B),
+    sheetRimTop = Color(0x55FFFFFF),
+    sheetRimBottom = Color(0x14FFFFFF),
+    sheetCausticGlow = Color(0x18FFFFFF),
+    // Sculpted card rim
+    cardRimTop = Color(0x28FFFFFF),
+    cardRimBottom = Color(0xFF242429),
+    // Status badges
     unreadFg = Color(0xFF60A5FA),
     unreadBg = Color(0xFF1D2735),
     reviewedFg = Color(0xFFFBBF24),
@@ -98,10 +146,35 @@ val PorcelainSavyorColors = SavyorColors(
     borderFocus = Color(0xFF71717A),
     ctaBg = Color(0xFF111113),
     ctaFg = Color(0xFFFAF9F6),
-    glassSurface = Color(0xCCFFFFFF),
-    glassSurfaceElevated = Color(0xE0F8F7F4),
-    glassBorderTop = Color(0xFFFFFFFF),
-    glassBorderBottom = Color(0x1F111113),
+    // CHROME (fallback opaque-calibrated frosted porcelain for Compose < 1.7)
+    chromeGradTop = Color(0xEBFFFFFF),
+    chromeGradBottom = Color(0xF2F5F4EF),
+    chromeDomeTop = Color(0x99FFFFFF),
+    chromeDomeMid = Color(0x28FFFFFF),
+    chromeRim0 = Color(0xFFFFFFFF),
+    chromeRim28 = Color(0x88E0F2FE),
+    chromeRim55 = Color(0x1C111113),
+    chromeRim82 = Color(0x24111113),
+    chromeRim100 = Color(0x30111113),
+    chromeBottomCaustic = Color(0x18111113),
+    // PILL
+    pillFill = Color(0xCCFFFFFF),
+    pillSheenTop = Color(0x66FFFFFF),
+    pillRimTop = Color(0xFFFFFFFF),
+    pillRimBottom = Color(0x22111113),
+    // THUMB_BADGE
+    thumbBadgeFill = Color(0xE0FFFFFF),
+    thumbBadgeRimTop = Color(0xFFFFFFFF),
+    thumbBadgeRimBottom = Color(0x28111113),
+    // SHEET
+    sheetFill = Color(0xF2FAF9F6),
+    sheetRimTop = Color(0xFFFFFFFF),
+    sheetRimBottom = Color(0x1F111113),
+    sheetCausticGlow = Color(0x55FFFFFF),
+    // Sculpted card rim
+    cardRimTop = Color(0xFFFFFFFF),
+    cardRimBottom = Color(0xFFE6E4DD),
+    // Status badges
     unreadFg = Color(0xFF1D4ED8),
     unreadBg = Color(0xFFE8EDFB),
     reviewedFg = Color(0xFF92400E),
@@ -118,7 +191,7 @@ val PorcelainSavyorColors = SavyorColors(
 
 val LocalSavyorColors = staticCompositionLocalOf { PorcelainSavyorColors }
 
-// Compatibility aliases for existing references
+// Compatibility aliases
 val SavyorLightAccent = Color(0xFF111113)
 val SavyorDarkAccent = Color(0xFFF4F4F5)
 

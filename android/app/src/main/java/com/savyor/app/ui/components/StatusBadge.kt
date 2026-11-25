@@ -10,9 +10,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.savyor.app.ui.theme.InterFontFamily
+import com.savyor.app.ui.theme.CrystalTier
 import com.savyor.app.ui.theme.LocalSavyorColors
-import com.savyor.app.ui.theme.savyorGlass
+import com.savyor.app.ui.theme.SavyorMonoFamily
+import com.savyor.app.ui.theme.savyorLiquidCrystal
 
 @Composable
 fun StatusBadge(
@@ -32,21 +33,21 @@ fun StatusBadge(
         else -> colors.unreadBg to colors.unreadFg
     }
 
-    val shape = RoundedCornerShape(6.dp)
+    val shape = RoundedCornerShape(8.dp)
     if (isFrosted) {
         Surface(
             color = Color.Transparent,
             shape = shape,
-            modifier = modifier.savyorGlass(shape = shape, elevated = false, borderWidth = 1.dp)
+            modifier = modifier.savyorLiquidCrystal(tier = CrystalTier.THUMB_BADGE, shape = shape)
         ) {
             Text(
                 text = upper,
-                fontFamily = InterFontFamily,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (colors.isDark) text else colors.inkPrimary,
-                letterSpacing = 0.4.sp,
-                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                fontFamily = SavyorMonoFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = text,
+                letterSpacing = 0.7.sp,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
             )
         }
     } else {
@@ -57,12 +58,12 @@ fun StatusBadge(
         ) {
             Text(
                 text = upper,
-                fontFamily = InterFontFamily,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontFamily = SavyorMonoFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
                 color = text,
-                letterSpacing = 0.4.sp,
-                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                letterSpacing = 0.7.sp,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
             )
         }
     }
