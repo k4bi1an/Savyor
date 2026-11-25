@@ -69,6 +69,7 @@ class SeedDataTest {
             )),
             caveats = gson.toJson(listOf("Requires Docker daemon running locally")),
             useWhen = "Use when testing RAG embeddings locally without cloud database bills.",
+            userNote = "Tested locally on Docker Desktop v4.30. Port 5432 works out of the box with pgvector extension enabled. Keep container memory capped at 2GB in docker-compose.yml.",
             thumbnailPath = thumb1.absolutePath,
             status = "UNREAD",
             processingState = "COMPLETED"
@@ -121,6 +122,7 @@ class SeedDataTest {
             )),
             caveats = gson.toJson(listOf("Oven cooking is not recommended; requires stovetop tawa")),
             useWhen = "Preparing a high-protein Sunday South Indian brunch.",
+            userNote = "Used 100g minced lamb instead of mutton; cooked keema for 15 mins beforehand. Added 1/2 tsp crushed black pepper on top before flipping.",
             thumbnailPath = thumb2.absolutePath,
             status = "REVIEWED",
             processingState = "COMPLETED"
@@ -171,6 +173,7 @@ class SeedDataTest {
                 "High GPU RAM usage when rendering multi-pass motion blur"
             )),
             useWhen = "Refining fast cinematic UI or promo video transitions.",
+            userNote = "Outgoing tangent 82% is ideal for mobile UI sizzle reels. Disable motion blur for vector icon layers to avoid edge blurring.",
             thumbnailPath = thumb3.absolutePath,
             status = "TRIED",
             processingState = "COMPLETED"
@@ -179,6 +182,12 @@ class SeedDataTest {
         db.reelDao().insert(reel1)
         db.reelDao().insert(reel2)
         db.reelDao().insert(reel3)
+
+        // Seed custom categories for Manage Categories screen
+        val catDao = db.categoryDao()
+        catDao.insert(com.savyor.app.data.local.entity.CategoryEntity(name = "Motion Design", isDefault = false, displayOrder = 10, colorHex = "#74B9A2"))
+        catDao.insert(com.savyor.app.data.local.entity.CategoryEntity(name = "Coffee & Brews", isDefault = false, displayOrder = 11, colorHex = "#80632E"))
+        catDao.insert(com.savyor.app.data.local.entity.CategoryEntity(name = "Productivity", isDefault = false, displayOrder = 12, colorHex = "#9E5A63"))
         }
     }
 

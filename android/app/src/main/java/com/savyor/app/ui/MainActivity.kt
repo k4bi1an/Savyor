@@ -23,6 +23,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.savyor.app.ui.navigation.Screen
+import com.savyor.app.ui.screens.categories.ManageCategoriesScreen
+import com.savyor.app.ui.screens.categories.ManageCategoriesViewModel
 import com.savyor.app.ui.screens.detail.ReelDetailScreen
 import com.savyor.app.ui.screens.detail.ReelDetailViewModel
 import com.savyor.app.ui.screens.library.LibraryScreen
@@ -35,6 +37,7 @@ class MainActivity : ComponentActivity() {
 
     private val libraryViewModel: LibraryViewModel by viewModels()
     private val settingsViewModel: SettingsViewModel by viewModels()
+    private val categoriesViewModel: ManageCategoriesViewModel by viewModels()
     private val targetRouteState = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,6 +91,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToSettings = {
                                     navController.navigate(Screen.Settings.route)
+                                },
+                                onNavigateToManageCategories = {
+                                    navController.navigate(Screen.ManageCategories.route)
                                 }
                             )
                         }
@@ -95,6 +101,16 @@ class MainActivity : ComponentActivity() {
                         composable(Screen.Settings.route) {
                             SettingsScreen(
                                 viewModel = settingsViewModel,
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToManageCategories = {
+                                    navController.navigate(Screen.ManageCategories.route)
+                                }
+                            )
+                        }
+
+                        composable(Screen.ManageCategories.route) {
+                            ManageCategoriesScreen(
+                                viewModel = categoriesViewModel,
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }

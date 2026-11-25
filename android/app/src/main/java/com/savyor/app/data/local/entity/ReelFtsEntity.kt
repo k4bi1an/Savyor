@@ -26,5 +26,8 @@ data class ReelFtsEntity(
     val creator: String,
 
     @ColumnInfo(name = "structured_content")
-    val structuredContent: String
+    val structuredContent: String,
+
+    @ColumnInfo(name = "user_note")
+    val userNote: String
 )

@@ -55,3 +55,32 @@ object StatusBadgeColors {
     val CaveatBorderDark = Color(0xFF423724)
     val CaveatTextDark = Color(0xFFDFC28E)
 }
+
+// --- CURATED MUTED EDITORIAL CATEGORY SWATCHES ---
+data class CategoryColorSwatch(
+    val hex: String,
+    val name: String,
+    val color: Color
+)
+
+val CategorySwatches = listOf(
+    CategoryColorSwatch("#2F5D50", "Forest Green", Color(0xFF2F5D50)),
+    CategoryColorSwatch("#74B9A2", "Soft Sage", Color(0xFF74B9A2)),
+    CategoryColorSwatch("#B35446", "Terracotta", Color(0xFFB35446)),
+    CategoryColorSwatch("#6E6758", "Warm Stone", Color(0xFF6E6758)),
+    CategoryColorSwatch("#80632E", "Warm Ochre", Color(0xFF80632E)),
+    CategoryColorSwatch("#566461", "Slate", Color(0xFF566461)),
+    CategoryColorSwatch("#9E5A63", "Dusty Rose", Color(0xFF9E5A63)),
+    CategoryColorSwatch("#4A607A", "Indigo Muted", Color(0xFF4A607A)),
+    CategoryColorSwatch("#7A5C8E", "Muted Plum", Color(0xFF7A5C8E)),
+    CategoryColorSwatch("#A37B45", "Amber Earth", Color(0xFFA37B45))
+)
+
+fun parseCategoryColor(hex: String, fallback: Color = SavyorLightAccent): Color {
+    return try {
+        val cleanHex = if (hex.startsWith("#")) hex else "#$hex"
+        Color(android.graphics.Color.parseColor(cleanHex))
+    } catch (e: Exception) {
+        fallback
+    }
+}

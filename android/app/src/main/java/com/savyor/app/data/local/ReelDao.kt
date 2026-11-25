@@ -48,6 +48,7 @@ interface ReelDao {
            OR creator LIKE '%' || :query || '%'
            OR tags LIKE '%' || :query || '%'
            OR structured_content LIKE '%' || :query || '%'
+           OR user_note LIKE '%' || :query || '%'
         ORDER BY created_at DESC
         """
     )
@@ -64,6 +65,15 @@ interface ReelDao {
 
     @Query("UPDATE reels SET category = :category, updated_at = :updatedAt WHERE shortcode = :shortcode")
     suspend fun updateCategory(shortcode: String, category: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE reels SET user_note = :userNote, updated_at = :updatedAt WHERE shortcode = :shortcode")
+    suspend fun updateUserNote(shortcode: String, userNote: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE reels SET category = :toCategory, updated_at = :updatedAt WHERE category = :fromCategory")
+    suspend fun reassignCategory(fromCategory: String, toCategory: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("SELECT COUNT(*) FROM reels WHERE category = :category")
+    suspend fun countByCategory(category: String): Int
 
     @Query("UPDATE reels SET processing_state = :state, error_message = :errorMessage, updated_at = :updatedAt WHERE shortcode = :shortcode")
     suspend fun updateProcessingState(

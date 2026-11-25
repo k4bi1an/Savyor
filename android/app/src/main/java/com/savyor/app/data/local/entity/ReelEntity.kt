@@ -72,6 +72,9 @@ data class ReelEntity(
     @ColumnInfo(name = "thumbnail_path")
     val thumbnailPath: String? = null,
 
+    @ColumnInfo(name = "user_note")
+    val userNote: String = "",
+
     @ColumnInfo(name = "status")
     val status: String = "UNREAD", // UNREAD, REVIEWED, TRIED, ARCHIVED
 

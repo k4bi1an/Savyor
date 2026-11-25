@@ -20,5 +20,8 @@ data class CategoryEntity(
     val isDefault: Boolean = false,
 
     @ColumnInfo(name = "display_order")
-    val displayOrder: Int = 0
+    val displayOrder: Int = 0,
+
+    @ColumnInfo(name = "color_hex")
+    val colorHex: String = "#2F5D50"
 )

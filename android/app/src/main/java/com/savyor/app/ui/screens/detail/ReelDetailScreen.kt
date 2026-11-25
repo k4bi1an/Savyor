@@ -460,6 +460,15 @@ fun ReelDetailScreen(
                         }
                     }
 
+                    // Personal "My Note" Field
+                    Spacer(modifier = Modifier.height(14.dp))
+                    MyNoteCard(
+                        userNote = currentReel.userNote,
+                        onSaveNote = { note ->
+                            viewModel.updateUserNote(note)
+                        }
+                    )
+
                     Spacer(modifier = Modifier.height(20.dp))
                 }
             }
@@ -1475,6 +1484,11 @@ fun copyMarkdownNotes(
         appendLine("**Original Reel:** ${reel.cleanUrl}")
         if (reel.useWhen.isNotBlank()) appendLine("> **Use when:** ${reel.useWhen}")
         appendLine()
+        if (reel.userNote.isNotBlank()) {
+            appendLine("## My Note")
+            appendLine(reel.userNote)
+            appendLine()
+        }
         appendLine("## Summary")
         appendLine(reel.summary)
         appendLine()
@@ -1515,4 +1529,153 @@ fun copyMarkdownNotes(
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("Savyor Note", md))
     Toast.makeText(context, "Markdown notes copied to clipboard", Toast.LENGTH_SHORT).show()
+}
+
+@Composable
+fun MyNoteCard(
+    userNote: String,
+    onSaveNote: (String) -> Unit
+) {
+    var isEditing by remember { mutableStateOf(false) }
+    var draftText by remember(userNote) { mutableStateOf(userNote) }
+    val haptic = LocalHapticFeedback.current
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = !isEditing) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                isEditing = true
+            },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.EditNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "MY NOTE",
+                        fontFamily = InterFontFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        letterSpacing = 0.8.sp
+                    )
+                }
+
+                if (!isEditing && userNote.isNotBlank()) {
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            isEditing = true
+                        },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Edit,
+                            contentDescription = "Edit note",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (isEditing) {
+                OutlinedTextField(
+                    value = draftText,
+                    onValueChange = { draftText = it },
+                    placeholder = {
+                        Text(
+                            text = "Add personal observations, recipe tweaks, or action items...",
+                            fontFamily = InterFontFamily,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    minLines = 3,
+                    textStyle = LocalTextStyle.current.copy(
+                        fontFamily = InterFontFamily,
+                        fontSize = 13.5.sp,
+                        lineHeight = 19.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = {
+                            draftText = userNote
+                            isEditing = false
+                        }
+                    ) {
+                        Text(
+                            "Cancel",
+                            fontFamily = InterFontFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSaveNote(draftText.trim())
+                            isEditing = false
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Text("Save Note", fontFamily = InterFontFamily, fontSize = 12.sp)
+                    }
+                }
+            } else {
+                if (userNote.isNotBlank()) {
+                    Text(
+                        text = userNote,
+                        fontFamily = InterFontFamily,
+                        fontSize = 13.5.sp,
+                        lineHeight = 20.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                } else {
+                    Text(
+                        text = "Tap to add personal observations, recipe tweaks, or reminders...",
+                        fontFamily = InterFontFamily,
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+    }
 }

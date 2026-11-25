@@ -51,7 +51,8 @@ import java.io.File
 fun LibraryScreen(
     viewModel: LibraryViewModel,
     onNavigateToDetail: (String) -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToManageCategories: () -> Unit = {}
 ) {
     val categories by viewModel.categories.collectAsState()
     val activeJobs by viewModel.activeJobs.collectAsState()
@@ -238,6 +239,7 @@ fun LibraryScreen(
                     CategoryTab(
                         text = cat.name,
                         selected = selectedCategory == cat.name,
+                        colorHex = cat.colorHex,
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             viewModel.selectCategory(cat.name)
@@ -246,12 +248,15 @@ fun LibraryScreen(
                 }
                 item {
                     IconButton(
-                        onClick = { showAddCategoryDialog = true },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onNavigateToManageCategories()
+                        },
                         modifier = Modifier.size(30.dp)
                     ) {
                         Icon(
                             Icons.Default.Add,
-                            contentDescription = "Add Category",
+                            contentDescription = "Manage Categories",
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
                         )
@@ -536,6 +541,7 @@ fun LibraryScreen(
 fun CategoryTab(
     text: String,
     selected: Boolean,
+    colorHex: String? = null,
     onClick: () -> Unit
 ) {
     Surface(
@@ -543,14 +549,27 @@ fun CategoryTab(
         shape = RoundedCornerShape(18.dp),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent
     ) {
-        Text(
-            text = text,
-            fontFamily = InterFontFamily,
-            fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            if (!colorHex.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(parseCategoryColor(colorHex))
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(
+                text = text,
+                fontFamily = InterFontFamily,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

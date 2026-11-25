@@ -33,6 +33,12 @@ class ReelDetailViewModel(
         }
     }
 
+    fun updateUserNote(note: String) {
+        viewModelScope.launch {
+            reelDao.updateUserNote(shortcode, note)
+        }
+    }
+
     fun updateCategory(newCategory: String) {
         viewModelScope.launch {
             val current = reel.value ?: return@launch

@@ -3,12 +3,19 @@ package com.savyor.app.ui.screens.settings
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.net.Uri
+import com.savyor.app.data.local.BackupRestoreManager
+import com.savyor.app.data.local.BackupStats
 import com.savyor.app.data.local.EncryptedSettingsManager
+import com.savyor.app.data.local.RestoreStats
 import com.savyor.app.data.remote.GeminiFilesClient
 import com.savyor.app.data.remote.YtDlpEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +56,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _storageStats = MutableStateFlow(StorageStats())
     val storageStats: StateFlow<StorageStats> = _storageStats.asStateFlow()
+
+    private val _isBackingUp = MutableStateFlow(false)
+    val isBackingUp: StateFlow<Boolean> = _isBackingUp.asStateFlow()
+
+    private val _isRestoring = MutableStateFlow(false)
+    val isRestoring: StateFlow<Boolean> = _isRestoring.asStateFlow()
+
+    private val _backupRestoreMessage = MutableSharedFlow<String>()
+    val backupRestoreMessage: SharedFlow<String> = _backupRestoreMessage.asSharedFlow()
 
     init {
         refreshEngineVersion()
@@ -151,6 +167,42 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 }
             }
             calculateStorage()
+        }
+    }
+
+    fun exportBackup(uri: Uri) {
+        if (_isBackingUp.value) return
+        _isBackingUp.value = true
+        viewModelScope.launch {
+            val res = BackupRestoreManager.exportBackup(getApplication(), uri)
+            _isBackingUp.value = false
+            res.fold(
+                onSuccess = { stats ->
+                    val mb = "%.2f".format(stats.fileSizeBytes.toDouble() / (1024 * 1024))
+                    _backupRestoreMessage.emit("Backup created ($mb MB, ${stats.snapshotCount} snapshots)")
+                },
+                onFailure = { err ->
+                    _backupRestoreMessage.emit("Backup failed: ${err.message}")
+                }
+            )
+        }
+    }
+
+    fun importBackup(uri: Uri) {
+        if (_isRestoring.value) return
+        _isRestoring.value = true
+        viewModelScope.launch {
+            val res = BackupRestoreManager.importBackup(getApplication(), uri)
+            _isRestoring.value = false
+            res.fold(
+                onSuccess = { stats ->
+                    calculateStorage()
+                    _backupRestoreMessage.emit("Restored ${stats.reelsRestored} reels (${stats.snapshotCount} snapshots)")
+                },
+                onFailure = { err ->
+                    _backupRestoreMessage.emit("Restore failed: ${err.message}")
+                }
+            )
         }
     }
 }
