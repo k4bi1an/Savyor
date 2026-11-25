@@ -49,6 +49,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import coil.request.ImageRequest
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -636,8 +637,13 @@ private fun MomentPortraitCard(
                 .clip(RoundedCornerShape(14.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
         ) {
+            val context = LocalContext.current
             AsyncImage(
-                model = File(frame.imagePath),
+                model = ImageRequest.Builder(context)
+                    .data(File(frame.imagePath))
+                    .crossfade(true)
+                    .size(480, 640)
+                    .build(),
                 contentDescription = frame.caption,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop

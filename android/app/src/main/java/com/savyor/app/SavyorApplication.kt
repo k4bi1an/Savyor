@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.savyor.app.data.local.EncryptedSettingsManager
 import com.savyor.app.data.local.SavyorDatabase
+import com.savyor.app.data.local.SnapshotCacheManager
 import com.savyor.app.data.remote.YtDlpEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,10 @@ class SavyorApplication : Application() {
                 if (db.categoryDao().count() == 0) {
                     db.categoryDao().insertAll(SavyorDatabase.DEFAULT_CATEGORIES)
                 }
+
+                // Sweep orphaned temp videos and enforce 100 MB snapshot LRU cap
+                SnapshotCacheManager.cleanupOrphanedTempVideos(cacheDir)
+                SnapshotCacheManager.enforceSnapshotLruCap(filesDir)
 
                 val settings = EncryptedSettingsManager(this@SavyorApplication)
                 if (!settings.isFirstRunDone && settings.autoUpdateYtDlp) {

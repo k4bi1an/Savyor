@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -341,11 +342,12 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
+                        val destructiveRed = if (isSystemInDarkTheme()) Color(0xFFE07A6B) else Color(0xFFB3382C)
                         OutlinedButton(
                             onClick = { viewModel.clearSnapshots() },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFB3382C)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = destructiveRed),
                             shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(0.5.dp, Color(0xFFB3382C).copy(alpha = 0.5f))
+                            border = BorderStroke(0.5.dp, destructiveRed.copy(alpha = 0.5f))
                         ) {
                             Text("Clear Snapshots Cache", fontFamily = InterFontFamily, fontSize = 12.sp)
                         }

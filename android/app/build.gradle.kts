@@ -32,6 +32,18 @@ android {
         buildConfig = true
     }
 
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.11"
     }

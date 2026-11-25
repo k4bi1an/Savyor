@@ -7,6 +7,7 @@ import androidx.work.WorkerParameters
 import com.google.gson.Gson
 import com.savyor.app.data.local.EncryptedSettingsManager
 import com.savyor.app.data.local.SavyorDatabase
+import com.savyor.app.data.local.SnapshotCacheManager
 import com.savyor.app.data.remote.*
 import java.io.File
 
@@ -105,6 +106,7 @@ class ProcessReelWorker(
                 shortcode = shortcode,
                 keyMoments = analysis.keyMoments
             )
+            SnapshotCacheManager.enforceSnapshotLruCap(applicationContext.filesDir)
 
             // 8. Update database with complete note
             val updatedReel = reel.copy(

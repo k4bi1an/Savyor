@@ -3,6 +3,7 @@ package com.savyor.app.ui.screens.library
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.savyor.app.data.local.FtsQuerySanitizer
 import com.savyor.app.data.local.SavyorDatabase
 import com.savyor.app.data.local.entity.CategoryEntity
 import com.savyor.app.data.local.entity.ReelEntity
@@ -54,11 +55,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }.flatMapLatest { (category, status, query) ->
         when {
             query.isNotBlank() -> {
-                // If FTS has terms, query FTS with wildcard
-                val ftsQuery = query.trim().split("\\s+".toRegex()).joinToString(" ") { "$it*" }
-                reelDao.searchReelsFts(ftsQuery).catch {
-                    // Fallback to LIKE if FTS parser throws on special syntax
-                    emitAll(reelDao.searchReelsFallback(query.trim()))
+                val ftsQuery = FtsQuerySanitizer.sanitizeForFts5(query)
+                if (ftsQuery != null) {
+                    reelDao.searchReelsFts(ftsQuery).catch {
+                        emitAll(reelDao.searchReelsFallback(query.trim()))
+                    }
+                } else {
+                    reelDao.searchReelsFallback(query.trim())
                 }
             }
             category == "All" && status == "All" -> reelDao.getAllReels()

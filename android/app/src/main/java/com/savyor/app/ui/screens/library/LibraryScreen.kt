@@ -31,7 +31,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import coil.request.ImageRequest
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -629,8 +631,13 @@ fun ReelGridCard(reel: ReelEntity, onClick: () -> Unit) {
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
         ) {
             if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
+                val context = LocalContext.current
                 AsyncImage(
-                    model = File(reel.thumbnailPath),
+                    model = ImageRequest.Builder(context)
+                        .data(File(reel.thumbnailPath))
+                        .crossfade(true)
+                        .size(480, 600)
+                        .build(),
                     contentDescription = reel.title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -702,8 +709,13 @@ fun ReelListRow(reel: ReelEntity, onClick: () -> Unit) {
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
         ) {
             if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
+                val context = LocalContext.current
                 AsyncImage(
-                    model = File(reel.thumbnailPath),
+                    model = ImageRequest.Builder(context)
+                        .data(File(reel.thumbnailPath))
+                        .crossfade(true)
+                        .size(480, 600)
+                        .build(),
                     contentDescription = reel.title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
