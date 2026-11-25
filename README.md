@@ -1,166 +1,72 @@
-# 🔖 Savyor — Save the reel. Keep the idea.
+# Savyor — Save the reel. Keep the idea.
 
-A calm, minimal personal knowledge library for Instagram Reels. It downloads video streams locally, transcribes audio and on-screen text with Google Gemini, extracts actionable takeaways and resources, and presents everything in a clean reading and note-taking interface.
-
----
-
-## ✨ Key Capabilities
-
-- **Minimalist Aesthetic:** Built with deliberate design tokens (#FAFAF8 background, Newsreader serif headers, Inter body text, #2F5D50 accent, zero blur/glow/gradients).
-- **Local Video & Thumbnail Storage:** Downloads 720p progressive MP4s and cover frames locally with `yt-dlp` and serves them with full HTTP 206 Partial Content Range streaming.
-- **Accurate Audio Transcription:** Gemini 3.5 Flash watches the video frames, transcribes speech word-for-word, and explicitly identifies silent/music-only clips.
-- **Custom Categories & Corrections:** Add, rename, recolor, and drag-reorder categories with automatic migration to "Other" upon category deletion.
-- **Passcode & Signed Session Security:** Constant-time passcode verification, signed HttpOnly SameSite=Lax session cookies (30-day expiry), and rate-limiting (5 attempts/min/IP).
-- **Status Lifecycle:** Track reels across `Unread`, `Reviewed`, `Tried`, and `Archived` statuses with auto-marking on review.
-- **Android Share Target & PWA:** Native web app manifest, offline shell service worker, and share sheet integration receiving Instagram URLs directly.
+**Savyor** is a native Kotlin + Jetpack Compose Android app that turns short-form Instagram Reels into permanent, searchable, self-contained English knowledge notes — while deleting the downloaded video file immediately after analysis so permanent video storage stays at **0 MB**.
 
 ---
 
-## 🛠️ Environment Variables (.env)
+## Key Features
 
-Create a `.env` file in the project root (see `.env.example`):
-
-```bash
-# 1. Google Gemini API Key
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# 2. Vault Passcode
-# If unset, Savyor runs open on 127.0.0.1 (localhost only).
-# When set, requires authentication via HttpOnly session cookies.
-SAVYOR_PASSCODE=your_custom_passcode
-
-# 3. Session Signing Secret (Must be separate from passcode)
-SAVYOR_SECRET_KEY=generate_a_secure_random_secret_for_cookies
-
-# 4. CORS Origins (Required for credentials/cookies)
-CORS_ORIGINS=http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,http://127.0.0.1:8000
-```
+- **Share-Sheet Capture:** Share any Instagram Reel directly to **Savyor** from Instagram's Share Sheet (or paste a link). Queued in the background via `WorkManager` with optional Wi-Fi-only constraints.
+- **On-Device Stream Fetch & Self-Healing:** Uses `youtubedl-android` (no FFmpeg) to fetch progressive MP4 streams (`<=720p`) into app cache. Includes a 7-day Wi-Fi startup update check and a 12-hour self-healing update + retry if a download fails.
+- **Multimodal AI Extraction (`gemini-3.5-flash`):** Analyzes both video frames and audio/captions via the Google AI Studio Gemini Files API to extract:
+  - Anti-clickbait summaries and concise **"Use When"** cues
+  - Verbatim code snippets, CLI commands, recipes (ingredients + steps), workouts, and listicles
+  - Full English translation for non-English/multilingual reels (while preserving the original native transcript)
+  - Caveats, sponsor/satire notes, and extracted links/resources
+- **Key-Moment WebP Frames in Notes:** Extracts a cover thumbnail and 2–4 key-moment **WebP frames** from the reel via Android `MediaMetadataRetriever` (`FrameExtractor`) and embeds them directly in each note's **Visual Moments** carousel and zoomable fullscreen lightbox before deleting the temporary `.mp4`.
+- **Visual Memory Search (`visual_memory`):** Indexes 1–2 sentence visual appearance cues (clothing, setting, lighting, props) in SQLite FTS4/FTS5 so you can find a reel even if you only remember what the video looked like.
+- **Personal "My Note" & Starred Favorites:** Add inline personal observations (also FTS-indexed and included in Markdown exports/shares), star (`★`) favorites, and filter with a 1-tap `Starred` pill.
+- **Library Organization & Layouts:** Custom color-coded categories (with safe reassignment to `"Other"` on delete and few-shot prompt adaptation), sort (`Newest`, `Oldest`, `Title A–Z`), and 3-way view cycling (`Grid` → `List` → `Compact`).
+- **Share & Copy Markdown:** One-tap Copy Markdown or Android `ACTION_SEND` Share Note for WhatsApp, Samsung Notes, or Notion.
+- **1-Tap Backup & Restore (`.zip`):** Storage Access Framework (SAF) export to Google Drive or local storage (checkpoints SQLite WAL and archives `savyor.db` + WebP snapshots) and safe restore with Zip Slip path-traversal protection.
 
 ---
 
-## 🚀 How to Run Locally
+## Screenshots
 
-### System Requirements
-- **Python 3.10+** and **Node.js 18+**
-- **ffmpeg (Recommended):** Required for direct video upload poster generation and high-resolution stream format merging.
-  - Windows: `winget install ffmpeg` (or install via Chocolatey/Scoop)
-  - Ubuntu/Debian: `sudo apt update && sudo apt install -y ffmpeg`
-  - macOS: `brew install ffmpeg`
+See the full 14-page Light & Dark UI showcase in [Savyor_Android_UI_Screenshots.pdf](docs/android/screenshots/Savyor_Android_UI_Screenshots.pdf) or browse [docs/android/screenshots/](docs/android/screenshots/).
 
-### 1. Run the Backend Server
-```powershell
-# Activate Python virtual environment
-.\.venv\Scripts\Activate.ps1
+| Library (Grid) | Library (Compact) | Reel Detail + Key Frames & My Note | Manage Categories |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/android/screenshots/library_categories_light.png" width="190"/> | <img src="docs/android/screenshots/library_compact_light.png" width="190"/> | <img src="docs/android/screenshots/detail_my_note_light.png" width="190"/> | <img src="docs/android/screenshots/manage_categories_light.png" width="190"/> |
 
-# Run FastAPI backend with Uvicorn (binds to 0.0.0.0:8000 when passcode set)
-python server.py
-```
-Open **[http://localhost:8000](http://localhost:8000)** in your browser.
+---
 
-### 2. Frontend Development & Production Build
-```powershell
-cd frontend
+## Project Structure
 
-# Run live Vite dev server
-npm.cmd run dev
-
-# Or compile production bundle into frontend/dist (served directly by FastAPI)
-npm.cmd run build
+```text
+├── android/                        # Native Kotlin + Jetpack Compose Android app
+│   ├── app/src/main/java/com/savyor/app/
+│   │   ├── data/local/             # Room DB (v3, MIGRATION_1_2 -> MIGRATION_2_3), FTS, SAF Backup, LRU cache
+│   │   ├── data/remote/            # YtDlpEngine, GeminiFilesClient, GeminiPromptBuilder, FrameExtractor
+│   │   ├── domain/model/           # GeminiModelSchema
+│   │   ├── ui/screens/             # Library, ReelDetail, ManageCategories, Settings
+│   │   └── work/                   # WorkManagerScheduler, ProcessReelWorker
+│   ├── app/src/test/               # JVM unit tests (18 tests)
+│   └── app/src/androidTest/        # Emulator instrumented tests (13 tests)
+├── docs/android/screenshots/       # Light/Dark screenshots & consolidated PDF
+└── scripts/                        # Screenshot PDF generator & emulator seed script
 ```
 
 ---
 
-## 💾 Database & Media Backups
+## Build & Test
 
-Savyor includes built-in scripts to create consistent, online backups of your SQLite database (using SQLite's native online backup API, preventing corruption during live writes) and media storage.
-
-### Create a Backup
-```powershell
-# Python
-python scripts/backup.py
-
-# Or PowerShell wrapper
-powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
-```
-Backups are saved to `backups/YYYY-MM-DD_HHMMSS/` containing `reels.db` and the `media/` folder. Savyor automatically retains the newest 10 backups and removes older ones.
-
-### Restore from Backup
-```powershell
-# Interactive selection (shows list of available backups)
-python scripts/restore.py
-
-# Or restore a specific backup folder
-python scripts/restore.py backups/2026-11-24_140345
-```
-Before overwriting any files, `scripts/restore.py` prompts for explicit confirmation (`yes`) and creates an automatic pre-restore safety backup of current data first.
-
----
-
-## 🧪 Running Automated Tests
-
-Run the full pytest test suite:
-```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_savyor.py -v
-```
-
-This verifies:
-1. URL parsing and shortcode normalization (`/reel/`, `/p/`, `/share/reel/`, query params).
-2. PWA & Android Share-Target link extraction from text.
-3. Category CRUD, reordering, and fallback to "Other" when deleted.
-4. Gemini category validation against active database categories.
-5. Reel status lifecycle (`unread`, `reviewed`, `tried`, `archived`) and archived filtering.
-6. Constant-time passcode verification, rate limiting, and HttpOnly session cookies.
-
----
-
-## 📱 Android Share Target & Capacitor APK
-
-### Option A: Progressive Web App (PWA)
-1. Open Savyor in Chrome on your Android device (on the same Wi-Fi LAN address or via HTTPS tunnel).
-2. Tap the browser menu `⋮` ➔ **Add to Home screen** (or **Install app**).
-3. Savyor installs as a standalone app with the official Savyor ribbon icon.
-4. Share any reel from Instagram ➔ select **Savyor** in the Android share sheet. The Add modal will open with the reel URL prefilled for confirmation.
-
-### Option B: Android APK (Capacitor)
-To package into a native Android `.apk`:
-```powershell
-cd frontend
-npm.cmd install @capacitor/core @capacitor/cli @capacitor/android
-npx.cmd cap init Savyor app.savyor.vault
-npm.cmd run build
-npx.cmd cap add android
-```
-
-In `android/app/src/main/AndroidManifest.xml`, add the `text/plain` intent filter inside `<activity android:name=".MainActivity">`:
-
-```xml
-<intent-filter>
-    <action android:name="android.intent.action.SEND" />
-    <category android:name="android.intent.category.DEFAULT" />
-    <data android:mimeType="text/plain" />
-</intent-filter>
-```
-
-In `frontend/src/App.jsx`, configure the backend API origin if pointing to a remote server (e.g. `https://vault.yourdomain.com`). HTTPS is required for non-localhost connections.
-
----
-
-## 📋 Manual Verification Checklist
-
-1. **Passcode Screen:**
-   - Open `http://localhost:8000`. If locked, verify the minimalist Savyor unlock screen appears.
-   - Enter your configured `SAVYOR_PASSCODE` ➔ click **Unlock vault**.
-2. **Category Tabs & Persistence:**
-   - Click different category tabs in the top bar. Note that categories with reels remain visible and filtering is instantaneous.
-   - Click **Manage** ➔ add a new category (e.g. "Architecture") with a color swatch ➔ verify it appears in the list.
-3. **Status Filter:**
-   - Switch status between `All`, `Unread`, `Reviewed`, `Tried`, `Archived`.
-   - Verify that archived reels are hidden when viewing `All`.
-4. **Reel Detail View:**
-   - Click any reel card. The URL updates to `/reel/:id` with a sticky 340px video on the left and reading column on the right.
-   - Test the video controls: play/pause, scrub bar, time counter, 1x/1.25x/1.5x/2x speed toggle, and loop button.
-   - Switch between **Notes**, **Transcript**, and **Links** tabs.
-   - Click **Copy notes** icon ➔ confirm notes are copied to clipboard with markdown formatting.
-   - In the "..." menu, test **Change category** and **Change status**.
-5. **Brand Preview:**
-   - Navigate to `http://localhost:8000/brand` to inspect the clean SVG vector lockup, mark, wordmark, and app icons at various resolutions.
+1. Configure your Android SDK and optional release keystore in git-ignored `android/local.properties`:
+   ```properties
+   sdk.dir=C\:\\Path\\To\\Android\\Sdk
+   RELEASE_STORE_FILE=C\:\\Path\\To\\savyor-release.jks
+   RELEASE_STORE_PASSWORD=your_store_password
+   RELEASE_KEY_ALIAS=savyor
+   RELEASE_KEY_PASSWORD=your_key_password
+   ```
+2. Run JVM unit tests & instrumented tests:
+   ```powershell
+   .\android\gradlew.bat -p android testDebugUnitTest
+   .\android\gradlew.bat -p android connectedDebugAndroidTest
+   ```
+3. Build the minified R8 Release APK (`arm64-v8a` & `x86_64` ABI splits):
+   ```powershell
+   .\android\gradlew.bat -p android assembleRelease
+   ```
+   Output: `android/app/build/outputs/apk/release/app-arm64-v8a-release.apk` (~21.4 MB).
