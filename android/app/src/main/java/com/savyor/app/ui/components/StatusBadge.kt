@@ -1,6 +1,5 @@
 package com.savyor.app.ui.components
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
@@ -12,7 +11,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.savyor.app.ui.theme.InterFontFamily
-import com.savyor.app.ui.theme.StatusBadgeColors
+import com.savyor.app.ui.theme.LocalSavyorColors
+import com.savyor.app.ui.theme.savyorGlass
 
 @Composable
 fun StatusBadge(
@@ -20,37 +20,50 @@ fun StatusBadge(
     modifier: Modifier = Modifier,
     isFrosted: Boolean = false
 ) {
-    val dark = isSystemInDarkTheme()
+    val colors = LocalSavyorColors.current
     val upper = status.uppercase()
 
     val (bg, text) = when (upper) {
-        "UNREAD" -> if (dark) StatusBadgeColors.UnreadBgDark to StatusBadgeColors.UnreadTextDark
-                    else StatusBadgeColors.UnreadBgLight to StatusBadgeColors.UnreadTextLight
-        "REVIEWED" -> if (dark) StatusBadgeColors.ReviewedBgDark to StatusBadgeColors.ReviewedTextDark
-                      else StatusBadgeColors.ReviewedBgLight to StatusBadgeColors.ReviewedTextLight
-        "TRIED" -> if (dark) StatusBadgeColors.TriedBgDark to StatusBadgeColors.TriedTextDark
-                   else StatusBadgeColors.TriedBgLight to StatusBadgeColors.TriedTextLight
-        "ARCHIVED" -> if (dark) StatusBadgeColors.ArchivedBgDark to StatusBadgeColors.ArchivedTextDark
-                      else StatusBadgeColors.ArchivedBgLight to StatusBadgeColors.ArchivedTextLight
-        else -> if (dark) StatusBadgeColors.UnreadBgDark to StatusBadgeColors.UnreadTextDark
-                else StatusBadgeColors.UnreadBgLight to StatusBadgeColors.UnreadTextLight
+        "UNREAD" -> colors.unreadBg to colors.unreadFg
+        "REVIEWED" -> colors.reviewedBg to colors.reviewedFg
+        "TRIED" -> colors.triedBg to colors.triedFg
+        "ARCHIVED" -> colors.surfaceRecessed to colors.inkMuted
+        "FAILED", "ERROR" -> colors.errorBg to colors.errorFg
+        else -> colors.unreadBg to colors.unreadFg
     }
 
-    val finalBg = if (isFrosted) bg.copy(alpha = 0.90f) else bg
-
-    Surface(
-        color = finalBg,
-        shape = RoundedCornerShape(6.dp),
-        modifier = modifier
-    ) {
-        Text(
-            text = upper,
-            fontFamily = InterFontFamily,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = text,
-            letterSpacing = 0.4.sp,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-        )
+    val shape = RoundedCornerShape(6.dp)
+    if (isFrosted) {
+        Surface(
+            color = Color.Transparent,
+            shape = shape,
+            modifier = modifier.savyorGlass(shape = shape, elevated = false, borderWidth = 1.dp)
+        ) {
+            Text(
+                text = upper,
+                fontFamily = InterFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (colors.isDark) text else colors.inkPrimary,
+                letterSpacing = 0.4.sp,
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+            )
+        }
+    } else {
+        Surface(
+            color = bg,
+            shape = shape,
+            modifier = modifier
+        ) {
+            Text(
+                text = upper,
+                fontFamily = InterFontFamily,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = text,
+                letterSpacing = 0.4.sp,
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+            )
+        }
     }
 }

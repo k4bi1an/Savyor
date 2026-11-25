@@ -1,6 +1,5 @@
 package com.savyor.app.ui.screens.categories
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
@@ -25,11 +23,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.savyor.app.R
 import com.savyor.app.data.local.entity.CategoryEntity
-import com.savyor.app.ui.components.springPressClickable
 import com.savyor.app.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,6 +37,7 @@ fun ManageCategoriesScreen(
     viewModel: ManageCategoriesViewModel,
     onNavigateBack: () -> Unit
 ) {
+    val colors = LocalSavyorColors.current
     val haptic = LocalHapticFeedback.current
     val categoriesWithCounts by viewModel.categoriesWithCounts.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -55,94 +55,105 @@ fun ManageCategoriesScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Manage Categories",
-                        fontFamily = NewsreaderFontFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 22.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface
+            Column(modifier = Modifier.background(colors.glassSurface)) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Manage Categories",
+                            fontFamily = NewsreaderFontFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 22.sp,
+                            color = colors.inkPrimary
                         )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = colors.inkPrimary
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
+                    )
                 )
-            )
+                HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
+            }
         },
-        containerColor = MaterialTheme.colorScheme.background
+        floatingActionButton = {
+            val fabShape = RoundedCornerShape(28.dp)
+            Surface(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showAddDialog = true
+                },
+                shape = fabShape,
+                color = colors.ctaBg,
+                contentColor = colors.ctaFg,
+                shadowElevation = 4.dp,
+                modifier = Modifier.border(1.dp, colors.borderSubtle, fabShape)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Add Topic",
+                        fontFamily = InterFontFamily,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        },
+        containerColor = colors.bgCanvas
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "LIBRARY TOPICS",
-                            fontFamily = InterFontFamily,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            letterSpacing = 0.8.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Color-code and organize your saved reels",
-                            fontFamily = InterFontFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            showAddDialog = true
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add Topic", fontFamily = InterFontFamily, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    }
+                Column(modifier = Modifier.padding(bottom = 4.dp)) {
+                    Text(
+                        text = "LIBRARY TOPICS",
+                        fontFamily = InterFontFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.inkMuted,
+                        letterSpacing = 0.8.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Tap any color dot to recolor, or organize your custom topics",
+                        fontFamily = InterFontFamily,
+                        fontSize = 12.sp,
+                        color = colors.inkSecondary
+                    )
                 }
             }
 
             items(categoriesWithCounts, key = { it.category.name }) { item ->
                 val category = item.category
                 val isOther = category.name.equals("Other", ignoreCase = true)
-                val catColor = parseCategoryColor(category.colorHex)
+                val catColor = categoryDotColor(category.name, category.colorHex, colors.isDark)
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+                    border = BorderStroke(1.dp, colors.borderSubtle),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Row(
                         modifier = Modifier
@@ -150,26 +161,18 @@ fun ManageCategoriesScreen(
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Tappable color swatch circle
+                        // Clean tappable color swatch circle
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(24.dp)
                                 .clip(CircleShape)
                                 .background(catColor)
-                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f), CircleShape)
+                                .border(1.dp, colors.borderSubtle, CircleShape)
                                 .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     recoloringCategory = category
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Outlined.ColorLens,
-                                contentDescription = "Change color",
-                                tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
+                                }
+                        )
 
                         Spacer(modifier = Modifier.width(12.dp))
 
@@ -180,63 +183,61 @@ fun ManageCategoriesScreen(
                                     fontFamily = InterFontFamily,
                                     fontSize = 14.5.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = colors.inkPrimary
                                 )
                                 if (category.isDefault) {
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.padding(1.dp)
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = colors.surfaceRecessed
                                     ) {
                                         Text(
                                             text = if (isOther) "Fallback" else "Default",
                                             fontFamily = InterFontFamily,
-                                            fontSize = 9.5.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = colors.inkMuted,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
                                 }
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "${item.reelCount} saved ${if (item.reelCount == 1) "reel" else "reels"}",
+                                text = pluralStringResource(R.plurals.saved_reels_count, item.reelCount, item.reelCount),
                                 fontFamily = InterFontFamily,
                                 fontSize = 11.5.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = colors.inkSecondary
                             )
                         }
 
-                        // Actions
                         if (!isOther) {
                             IconButton(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     editingCategory = category
                                 },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     Icons.Outlined.Edit,
                                     contentDescription = "Rename category",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = colors.inkSecondary,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
                             if (!category.isDefault) {
-                                Spacer(modifier = Modifier.width(4.dp))
                                 IconButton(
                                     onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         deletingCategory = item
                                     },
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         Icons.Outlined.Delete,
                                         contentDescription = "Delete category",
-                                        tint = Color(0xFFB3382C),
+                                        tint = colors.errorFg,
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
@@ -245,26 +246,24 @@ fun ManageCategoriesScreen(
                     }
                 }
             }
-
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-            }
         }
     }
 
     // Dialog: Add Category
     if (showAddDialog) {
         var newName by remember { mutableStateOf("") }
-        var selectedColorHex by remember { mutableStateOf("#2F5D50") }
+        var selectedColorHex by remember { mutableStateOf(CategorySwatches.first().hex) }
 
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
+            containerColor = colors.surfaceElevated,
             title = {
                 Text(
                     text = "New Category",
                     fontFamily = NewsreaderFontFamily,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 20.sp
+                    fontSize = 20.sp,
+                    color = colors.inkPrimary
                 )
             },
             text = {
@@ -280,11 +279,11 @@ fun ManageCategoriesScreen(
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = "Editorial Swatch Palette",
+                        text = "Color Swatch",
                         fontFamily = InterFontFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = colors.inkMuted
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     ColorSwatchPicker(
@@ -302,17 +301,17 @@ fun ManageCategoriesScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                        containerColor = colors.ctaBg,
+                        contentColor = colors.ctaFg
                     ),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Create", fontFamily = InterFontFamily)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showAddDialog = false }) {
-                    Text("Cancel", fontFamily = InterFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Cancel", fontFamily = InterFontFamily, color = colors.inkSecondary)
                 }
             }
         )
@@ -323,21 +322,23 @@ fun ManageCategoriesScreen(
         var renameInput by remember { mutableStateOf(cat.name) }
         AlertDialog(
             onDismissRequest = { editingCategory = null },
+            containerColor = colors.surfaceElevated,
             title = {
                 Text(
                     text = "Rename Category",
                     fontFamily = NewsreaderFontFamily,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 20.sp
+                    fontSize = 20.sp,
+                    color = colors.inkPrimary
                 )
             },
             text = {
                 Column {
                     Text(
-                        text = "Renaming will update all saved reels in this category and keep AI suggestions in sync.",
+                        text = "Renaming updates all saved reels in this category and keeps AI suggestions in sync.",
                         fontFamily = InterFontFamily,
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = colors.inkSecondary
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
@@ -358,17 +359,17 @@ fun ManageCategoriesScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                        containerColor = colors.ctaBg,
+                        contentColor = colors.ctaFg
                     ),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Rename", fontFamily = InterFontFamily)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { editingCategory = null }) {
-                    Text("Cancel", fontFamily = InterFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Cancel", fontFamily = InterFontFamily, color = colors.inkSecondary)
                 }
             }
         )
@@ -379,21 +380,23 @@ fun ManageCategoriesScreen(
         var chosenHex by remember { mutableStateOf(cat.colorHex) }
         AlertDialog(
             onDismissRequest = { recoloringCategory = null },
+            containerColor = colors.surfaceElevated,
             title = {
                 Text(
                     text = "Recolor \"${cat.name}\"",
                     fontFamily = NewsreaderFontFamily,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 20.sp
+                    fontSize = 20.sp,
+                    color = colors.inkPrimary
                 )
             },
             text = {
                 Column {
                     Text(
-                        text = "Select a muted editorial tone for this category's badges and tabs.",
+                        text = "Select a color swatch for this category's dots and badges.",
                         fontFamily = InterFontFamily,
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = colors.inkSecondary
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     ColorSwatchPicker(
@@ -409,17 +412,17 @@ fun ManageCategoriesScreen(
                         recoloringCategory = null
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                        containerColor = colors.ctaBg,
+                        contentColor = colors.ctaFg
                     ),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Apply", fontFamily = InterFontFamily)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { recoloringCategory = null }) {
-                    Text("Cancel", fontFamily = InterFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Cancel", fontFamily = InterFontFamily, color = colors.inkSecondary)
                 }
             }
         )
@@ -430,22 +433,24 @@ fun ManageCategoriesScreen(
         val cat = item.category
         AlertDialog(
             onDismissRequest = { deletingCategory = null },
+            containerColor = colors.surfaceElevated,
             title = {
                 Text(
                     text = "Delete \"${cat.name}\"?",
                     fontFamily = NewsreaderFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 20.sp,
-                    color = Color(0xFFB3382C)
+                    color = colors.errorFg
                 )
             },
             text = {
+                val countText = pluralStringResource(R.plurals.saved_reels_count, item.reelCount, item.reelCount)
                 Text(
-                    text = "This category currently has ${item.reelCount} saved reels.\n\nDeleting this category will safely reassign all ${item.reelCount} reels to \"Other\". The reels and their AI notes will NOT be deleted.",
+                    text = "This category currently has $countText.\n\nDeleting it will safely move those reels to \"Other\". Your reels and notes will not be deleted.",
                     fontFamily = InterFontFamily,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = colors.inkSecondary
                 )
             },
             confirmButton = {
@@ -455,17 +460,17 @@ fun ManageCategoriesScreen(
                         deletingCategory = null
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFB3382C),
+                        containerColor = colors.errorFg,
                         contentColor = Color.White
                     ),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Delete & Reassign", fontFamily = InterFontFamily)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { deletingCategory = null }) {
-                    Text("Cancel", fontFamily = InterFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Cancel", fontFamily = InterFontFamily, color = colors.inkSecondary)
                 }
             }
         )
@@ -477,9 +482,9 @@ fun ColorSwatchPicker(
     selectedHex: String,
     onSelectHex: (String) -> Unit
 ) {
+    val colors = LocalSavyorColors.current
     val haptic = LocalHapticFeedback.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Render 2 rows of 5 swatches each
         val rows = CategorySwatches.chunked(5)
         rows.forEach { rowSwatches ->
             Row(
@@ -496,7 +501,7 @@ fun ColorSwatchPicker(
                             .background(swatch.color)
                             .border(
                                 width = if (isSelected) 2.5.dp else 1.dp,
-                                color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                color = if (isSelected) colors.inkPrimary else colors.borderSubtle,
                                 shape = CircleShape
                             )
                             .clickable {

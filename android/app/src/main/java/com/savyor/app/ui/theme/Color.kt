@@ -1,62 +1,128 @@
 package com.savyor.app.ui.theme
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-// --- LIGHT PALETTE ---
-val SavyorLightBackground = Color(0xFFFAF9F6)
-val SavyorLightCard = Color(0xFFFFFFFF)
-val SavyorLightSubtle = Color(0xFFF2F0EB)
-val SavyorLightBorder = Color(0xFFE6E2DA)
-val SavyorLightTextPrimary = Color(0xFF1C1E1D)
-val SavyorLightTextSecondary = Color(0xFF666A67)
-val SavyorLightAccent = Color(0xFF2F5D50)
+enum class SavyorThemeMode(val label: String) {
+    SYSTEM("System"),
+    OBSIDIAN("Obsidian"),
+    PORCELAIN("Porcelain");
 
-// --- DARK PALETTE ---
-val SavyorDarkBackground = Color(0xFF111312)
-val SavyorDarkCard = Color(0xFF191C1B)
-val SavyorDarkSubtle = Color(0xFF222625)
-val SavyorDarkBorder = Color(0xFF2C312F)
-val SavyorDarkTextPrimary = Color(0xFFF2F1EC)
-val SavyorDarkTextSecondary = Color(0xFF9BA19E)
-val SavyorDarkAccent = Color(0xFF74B9A2) // Lifted sage for dark text/icons/active indicators
-val SavyorDarkButtonAccent = Color(0xFF2F5D50) // Deep forest fill for prominent buttons
-
-// --- STATUS BADGES (Soft, muted, harmonious tones) ---
-object StatusBadgeColors {
-    // Unread (Sage tint)
-    val UnreadBgLight = Color(0xFFE2ECE8)
-    val UnreadTextLight = Color(0xFF2F5D50)
-    val UnreadBgDark = Color(0xFF1E2824)
-    val UnreadTextDark = Color(0xFF74B9A2)
-
-    // Reviewed (Warm Stone)
-    val ReviewedBgLight = Color(0xFFEDEAE3)
-    val ReviewedTextLight = Color(0xFF6E6758)
-    val ReviewedBgDark = Color(0xFF282622)
-    val ReviewedTextDark = Color(0xFFC8C2B4)
-
-    // Tried (Muted Olive / Amber)
-    val TriedBgLight = Color(0xFFF2ECE1)
-    val TriedTextLight = Color(0xFF80632E)
-    val TriedBgDark = Color(0xFF2B261D)
-    val TriedTextDark = Color(0xFFD4B87E)
-
-    // Archived (Muted Slate)
-    val ArchivedBgLight = Color(0xFFE8ECEB)
-    val ArchivedTextLight = Color(0xFF566461)
-    val ArchivedBgDark = Color(0xFF222726)
-    val ArchivedTextDark = Color(0xFFA5B4B0)
-
-    // Caveat / Callout (Warm Amber)
-    val CaveatBgLight = Color(0xFFFAF4EA)
-    val CaveatBorderLight = Color(0xFFEAD8B8)
-    val CaveatTextLight = Color(0xFF8C6527)
-    val CaveatBgDark = Color(0xFF282218)
-    val CaveatBorderDark = Color(0xFF423724)
-    val CaveatTextDark = Color(0xFFDFC28E)
+    companion object {
+        fun fromString(raw: String): SavyorThemeMode =
+            entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: SYSTEM
+    }
 }
 
-// --- CURATED MUTED EDITORIAL CATEGORY SWATCHES ---
+@Immutable
+data class SavyorColors(
+    val isDark: Boolean,
+    val bgCanvas: Color,
+    val surfaceCard: Color,
+    val surfaceElevated: Color,
+    val surfaceRecessed: Color,
+    val surfacePressed: Color,
+    val inkPrimary: Color,
+    val inkSecondary: Color,
+    val inkMuted: Color,
+    val borderSubtle: Color,
+    val borderFocus: Color,
+    val ctaBg: Color,
+    val ctaFg: Color,
+    // Liquid Glass tokens
+    val glassSurface: Color,
+    val glassSurfaceElevated: Color,
+    val glassBorderTop: Color,
+    val glassBorderBottom: Color,
+    // Status badge tokens
+    val unreadFg: Color,
+    val unreadBg: Color,
+    val reviewedFg: Color,
+    val reviewedBg: Color,
+    val triedFg: Color,
+    val triedBg: Color,
+    val errorFg: Color,
+    val errorBg: Color,
+    // Caveat callout tokens
+    val caveatBg: Color,
+    val caveatBorder: Color,
+    val caveatText: Color,
+    // Starred highlight
+    val starAccent: Color
+)
+
+val ObsidianSavyorColors = SavyorColors(
+    isDark = true,
+    bgCanvas = Color(0xFF09090B),
+    surfaceCard = Color(0xFF121215),
+    surfaceElevated = Color(0xFF1A1A1F),
+    surfaceRecessed = Color(0xFF0E0E11),
+    surfacePressed = Color(0xFF232329),
+    inkPrimary = Color(0xFFF4F4F5),
+    inkSecondary = Color(0xFFA8A8B3),
+    inkMuted = Color(0xFF878794),
+    borderSubtle = Color(0xFF242429),
+    borderFocus = Color(0xFF71717A),
+    ctaBg = Color(0xFFF4F4F5),
+    ctaFg = Color(0xFF09090B),
+    glassSurface = Color(0xCC141418),
+    glassSurfaceElevated = Color(0xD91C1C22),
+    glassBorderTop = Color(0x38FFFFFF),
+    glassBorderBottom = Color(0x12FFFFFF),
+    unreadFg = Color(0xFF60A5FA),
+    unreadBg = Color(0xFF1D2735),
+    reviewedFg = Color(0xFFFBBF24),
+    reviewedBg = Color(0xFF332A17),
+    triedFg = Color(0xFF34D399),
+    triedBg = Color(0xFF172D27),
+    errorFg = Color(0xFFF87171),
+    errorBg = Color(0xFF321F22),
+    caveatBg = Color(0xFF201A12),
+    caveatBorder = Color(0xFF3A2E1C),
+    caveatText = Color(0xFFFBBF24),
+    starAccent = Color(0xFFFBBF24)
+)
+
+val PorcelainSavyorColors = SavyorColors(
+    isDark = false,
+    bgCanvas = Color(0xFFF8F7F4),
+    surfaceCard = Color(0xFFFFFFFF),
+    surfaceElevated = Color(0xFFFFFFFF),
+    surfaceRecessed = Color(0xFFEFEEEA),
+    surfacePressed = Color(0xFFE5E4DE),
+    inkPrimary = Color(0xFF111113),
+    inkSecondary = Color(0xFF4E4E57),
+    inkMuted = Color(0xFF666670),
+    borderSubtle = Color(0xFFE6E4DD),
+    borderFocus = Color(0xFF71717A),
+    ctaBg = Color(0xFF111113),
+    ctaFg = Color(0xFFFAF9F6),
+    glassSurface = Color(0xCCFFFFFF),
+    glassSurfaceElevated = Color(0xE0F8F7F4),
+    glassBorderTop = Color(0xFFFFFFFF),
+    glassBorderBottom = Color(0x1F111113),
+    unreadFg = Color(0xFF1D4ED8),
+    unreadBg = Color(0xFFE8EDFB),
+    reviewedFg = Color(0xFF92400E),
+    reviewedBg = Color(0xFFFAEFE1),
+    triedFg = Color(0xFF047857),
+    triedBg = Color(0xFFE6F2EE),
+    errorFg = Color(0xFFB91C1C),
+    errorBg = Color(0xFFF8E8E8),
+    caveatBg = Color(0xFFFAF4EA),
+    caveatBorder = Color(0xFFEAD8B8),
+    caveatText = Color(0xFF92400E),
+    starAccent = Color(0xFFD97706)
+)
+
+val LocalSavyorColors = staticCompositionLocalOf { PorcelainSavyorColors }
+
+// Compatibility aliases for existing references
+val SavyorLightAccent = Color(0xFF111113)
+val SavyorDarkAccent = Color(0xFFF4F4F5)
+
+// --- CURATED CATEGORY SWATCHES & THEME-AWARE DOT COLORS ---
 data class CategoryColorSwatch(
     val hex: String,
     val name: String,
@@ -64,17 +130,31 @@ data class CategoryColorSwatch(
 )
 
 val CategorySwatches = listOf(
-    CategoryColorSwatch("#2F5D50", "Forest Green", Color(0xFF2F5D50)),
-    CategoryColorSwatch("#74B9A2", "Soft Sage", Color(0xFF74B9A2)),
-    CategoryColorSwatch("#B35446", "Terracotta", Color(0xFFB35446)),
-    CategoryColorSwatch("#6E6758", "Warm Stone", Color(0xFF6E6758)),
-    CategoryColorSwatch("#80632E", "Warm Ochre", Color(0xFF80632E)),
-    CategoryColorSwatch("#566461", "Slate", Color(0xFF566461)),
-    CategoryColorSwatch("#9E5A63", "Dusty Rose", Color(0xFF9E5A63)),
-    CategoryColorSwatch("#4A607A", "Indigo Muted", Color(0xFF4A607A)),
-    CategoryColorSwatch("#7A5C8E", "Muted Plum", Color(0xFF7A5C8E)),
-    CategoryColorSwatch("#A37B45", "Amber Earth", Color(0xFFA37B45))
+    CategoryColorSwatch("#2563EB", "Cobalt", Color(0xFF2563EB)),
+    CategoryColorSwatch("#C2410C", "Terracotta", Color(0xFFC2410C)),
+    CategoryColorSwatch("#047857", "Emerald", Color(0xFF047857)),
+    CategoryColorSwatch("#7E22CE", "Plum", Color(0xFF7E22CE)),
+    CategoryColorSwatch("#BE185D", "Rose", Color(0xFFBE185D)),
+    CategoryColorSwatch("#854D0E", "Espresso", Color(0xFF854D0E)),
+    CategoryColorSwatch("#0369A1", "Cerulean", Color(0xFF0369A1)),
+    CategoryColorSwatch("#52525B", "Graphite", Color(0xFF52525B)),
+    CategoryColorSwatch("#2F5D50", "Forest", Color(0xFF2F5D50)),
+    CategoryColorSwatch("#9E5A63", "Dusty Rose", Color(0xFF9E5A63))
 )
+
+fun categoryDotColor(categoryName: String, colorHex: String, isDark: Boolean): Color {
+    return when (categoryName.lowercase()) {
+        "tech & code" -> if (isDark) Color(0xFF60A5FA) else Color(0xFF2563EB)
+        "recipes & cooking" -> if (isDark) Color(0xFFFB923C) else Color(0xFFC2410C)
+        "health & fitness" -> if (isDark) Color(0xFF34D399) else Color(0xFF047857)
+        "design & ui" -> if (isDark) Color(0xFFC084FC) else Color(0xFF7E22CE)
+        "motion design" -> if (isDark) Color(0xFFF472B6) else Color(0xFFBE185D)
+        "coffee & brews" -> if (isDark) Color(0xFFD6A77A) else Color(0xFF854D0E)
+        "productivity" -> if (isDark) Color(0xFF38BDF8) else Color(0xFF0369A1)
+        "other" -> if (isDark) Color(0xFF9CA3AF) else Color(0xFF52525B)
+        else -> parseCategoryColor(colorHex, if (isDark) Color(0xFF9CA3AF) else Color(0xFF52525B))
+    }
+}
 
 fun parseCategoryColor(hex: String, fallback: Color = SavyorLightAccent): Color {
     return try {

@@ -189,4 +189,22 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             _snackbarMessage.emit("Category \"$name\" deleted")
         }
     }
+
+    fun nextTriageStatus(currentStatus: String): String = when (currentStatus.uppercase()) {
+        "UNREAD" -> "REVIEWED"
+        "REVIEWED" -> "TRIED"
+        else -> "UNREAD"
+    }
+
+    fun setReelStatus(shortcode: String, status: String) {
+        viewModelScope.launch {
+            reelDao.updateStatus(shortcode, status)
+        }
+    }
+
+    fun setReelStarred(shortcode: String, isStarred: Boolean) {
+        viewModelScope.launch {
+            reelDao.updateStarred(shortcode, isStarred)
+        }
+    }
 }

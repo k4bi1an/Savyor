@@ -2,8 +2,10 @@ package com.savyor.app.ui.screens.library
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,20 +32,22 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import coil.request.ImageRequest
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.savyor.app.data.local.entity.ReelEntity
 import com.savyor.app.ui.components.StatusBadge
 import com.savyor.app.ui.components.springPressClickable
 import com.savyor.app.ui.theme.*
+import kotlinx.coroutines.launch
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -54,6 +58,7 @@ fun LibraryScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToManageCategories: () -> Unit = {}
 ) {
+    val colors = LocalSavyorColors.current
     val categories by viewModel.categories.collectAsState()
     val activeJobs by viewModel.activeJobs.collectAsState()
     val reels by viewModel.reels.collectAsState()
@@ -65,18 +70,23 @@ fun LibraryScreen(
     val sortOrder by viewModel.sortOrder.collectAsState()
 
     val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
     var showAddDialog by remember { mutableStateOf(false) }
-    var showAddCategoryDialog by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
-    var showStatusDropdown by remember { mutableStateOf(false) }
-    var showSortDropdown by remember { mutableStateOf(false) }
+    var showFilterSheet by remember { mutableStateOf(false) }
+
+    val searchFocusRequester = remember { FocusRequester() }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
 
     val categoryColorMap = remember(categories) {
         categories.associate { it.name to it.colorHex }
     }
-
-    val searchFocusRequester = remember { FocusRequester() }
-    val snackbarHostState = remember { SnackbarHostState() }
+    val activeFilterCount = remember(selectedStatus, starredOnly, sortOrder) {
+        (if (selectedStatus != "All") 1 else 0) +
+            (if (starredOnly) 1 else 0) +
+            (if (sortOrder != SortOrder.NEWEST) 1 else 0)
+    }
 
     LaunchedEffect(Unit) {
         viewModel.snackbarMessage.collect { msg ->
@@ -91,149 +101,199 @@ fun LibraryScreen(
     }
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            TopAppBar(
-                title = {
-                    AnimatedContent(
-                        targetState = isSearchExpanded,
-                        transitionSpec = {
-                            (fadeIn(tween(200)) + expandHorizontally(tween(220))) togetherWith
-                                (fadeOut(tween(150)) + shrinkHorizontally(tween(180)))
-                        },
-                        label = "search_bar_toggle"
-                    ) { expanded ->
-                        if (expanded) {
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(40.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 14.dp)
+            Column(
+                modifier = Modifier.background(colors.glassSurface)
+            ) {
+                TopAppBar(
+                    scrollBehavior = scrollBehavior,
+                    title = {
+                        AnimatedContent(
+                            targetState = isSearchExpanded,
+                            transitionSpec = {
+                                (fadeIn(tween(200)) + expandHorizontally(tween(220))) togetherWith
+                                    (fadeOut(tween(150)) + shrinkHorizontally(tween(180)))
+                            },
+                            label = "search_bar_toggle"
+                        ) { expanded ->
+                            if (expanded) {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = colors.surfaceRecessed,
+                                    border = BorderStroke(1.dp, colors.borderSubtle),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(40.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Box(
-                                        modifier = Modifier.weight(1f),
-                                        contentAlignment = Alignment.CenterStart
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 14.dp)
                                     ) {
-                                        if (searchQuery.isEmpty()) {
-                                            Text(
-                                                text = "Search notes, transcripts, or visuals...",
-                                                fontFamily = InterFontFamily,
-                                                fontSize = 13.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = colors.inkMuted,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier.weight(1f),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (searchQuery.isEmpty()) {
+                                                Text(
+                                                    text = "Search notes, transcripts, or visuals...",
+                                                    fontFamily = InterFontFamily,
+                                                    fontSize = 13.sp,
+                                                    color = colors.inkMuted
+                                                )
+                                            }
+                                            BasicTextField(
+                                                value = searchQuery,
+                                                onValueChange = { viewModel.setSearchQuery(it) },
+                                                singleLine = true,
+                                                textStyle = TextStyle(
+                                                    fontFamily = InterFontFamily,
+                                                    fontSize = 13.sp,
+                                                    color = colors.inkPrimary
+                                                ),
+                                                cursorBrush = SolidColor(colors.inkPrimary),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .focusRequester(searchFocusRequester)
                                             )
                                         }
-                                        BasicTextField(
-                                            value = searchQuery,
-                                            onValueChange = { viewModel.setSearchQuery(it) },
-                                            singleLine = true,
-                                            textStyle = TextStyle(
-                                                fontFamily = InterFontFamily,
-                                                fontSize = 13.sp,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            ),
-                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .focusRequester(searchFocusRequester)
-                                        )
-                                    }
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(
-                                            onClick = { viewModel.setSearchQuery("") },
-                                            modifier = Modifier.size(20.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Clear,
-                                                contentDescription = "Clear",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(14.dp)
-                                            )
+                                        if (searchQuery.isNotEmpty()) {
+                                            IconButton(
+                                                onClick = { viewModel.setSearchQuery("") },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Clear,
+                                                    contentDescription = "Clear",
+                                                    tint = colors.inkSecondary,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
+                            } else {
+                                Text(
+                                    text = "Savyor",
+                                    fontFamily = NewsreaderFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 26.sp,
+                                    color = colors.inkPrimary,
+                                    letterSpacing = (-0.4).sp
+                                )
                             }
-                        } else {
-                            Text(
-                                text = "Savyor",
-                                fontFamily = NewsreaderFontFamily,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 26.sp,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                letterSpacing = (-0.4).sp
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                isSearchExpanded = !isSearchExpanded
+                                if (!isSearchExpanded) viewModel.setSearchQuery("")
+                            },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
+                                contentDescription = if (isSearchExpanded) "Close Search" else "Search",
+                                tint = colors.inkSecondary
                             )
                         }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        isSearchExpanded = !isSearchExpanded
-                        if (!isSearchExpanded) viewModel.setSearchQuery("")
-                    }) {
-                        Icon(
-                            imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
-                            contentDescription = if (isSearchExpanded) "Close Search" else "Search",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onNavigateToSettings()
-                    }) {
-                        Icon(
-                            imageVector = Icons.Outlined.Settings,
-                            contentDescription = "Settings",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.toggleViewMode()
+                            },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            val viewIcon = when (viewMode) {
+                                ViewMode.GRID -> Icons.Outlined.GridView
+                                ViewMode.LIST -> Icons.AutoMirrored.Outlined.ViewList
+                                ViewMode.COMPACT -> Icons.Outlined.ViewHeadline
+                            }
+                            Icon(
+                                imageVector = viewIcon,
+                                contentDescription = "Cycle View (${viewMode.name})",
+                                tint = colors.inkSecondary
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onNavigateToSettings()
+                            },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = "Settings",
+                                tint = colors.inkSecondary
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
+                    )
                 )
-            )
+                HorizontalDivider(color = colors.borderSubtle, thickness = 1.dp)
+            }
         },
         floatingActionButton = {
-            FloatingActionButton(
+            val fabShape = RoundedCornerShape(28.dp)
+            Surface(
                 onClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     showAddDialog = true
                 },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = CircleShape,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp)
+                shape = fabShape,
+                color = colors.ctaBg,
+                contentColor = colors.ctaFg,
+                shadowElevation = 4.dp,
+                modifier = Modifier.border(1.dp, colors.borderSubtle, fabShape)
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Reel")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Save Reel",
+                        fontFamily = InterFontFamily,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = colors.bgCanvas
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Borderless Category Strip
+            // Single Consolidated Horizontal Chip Rail: All + Categories + Trailing Filter Chip
             LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 item {
-                    CategoryTab(
+                    CategoryChip(
                         text = "All",
                         selected = selectedCategory == "All",
                         onClick = {
@@ -243,10 +303,10 @@ fun LibraryScreen(
                     )
                 }
                 items(categories) { cat ->
-                    CategoryTab(
+                    CategoryChip(
                         text = cat.name,
                         selected = selectedCategory == cat.name,
-                        colorHex = cat.colorHex,
+                        dotColor = categoryDotColor(cat.name, cat.colorHex, colors.isDark),
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             viewModel.selectCategory(cat.name)
@@ -254,216 +314,61 @@ fun LibraryScreen(
                     )
                 }
                 item {
-                    IconButton(
+                    val filterShape = RoundedCornerShape(18.dp)
+                    Surface(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onNavigateToManageCategories()
+                            showFilterSheet = true
                         },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = "Manage Categories",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
+                        shape = filterShape,
+                        color = if (activeFilterCount > 0) colors.surfaceElevated else colors.surfaceRecessed,
+                        border = BorderStroke(
+                            1.dp,
+                            if (activeFilterCount > 0) colors.borderFocus else colors.borderSubtle
                         )
-                    }
-                }
-            }
-
-            // Compact Sub-bar: Status Pill + Starred Filter on Left; Sort + Count + 3-Way Toggle on Right
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Status Dropdown Pill
-                    Box {
-                        val displayStatus = if (selectedStatus == "All") {
-                            "Status: All"
-                        } else {
-                            selectedStatus.lowercase().replaceFirstChar { it.uppercase() }
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable { showStatusDropdown = true }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            ) {
-                                Text(
-                                    text = displayStatus,
-                                    fontFamily = InterFontFamily,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Icon(
-                                    Icons.Default.ArrowDropDown,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-
-                        DropdownMenu(
-                            expanded = showStatusDropdown,
-                            onDismissRequest = { showStatusDropdown = false }
-                        ) {
-                            listOf("All", "UNREAD", "REVIEWED", "TRIED", "ARCHIVED").forEach { st ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = if (st == "All") "All Statuses" else st.lowercase().replaceFirstChar { it.uppercase() },
-                                            fontFamily = InterFontFamily,
-                                            fontSize = 13.sp,
-                                            fontWeight = if (selectedStatus == st) FontWeight.SemiBold else FontWeight.Normal,
-                                            color = if (selectedStatus == st) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    },
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        viewModel.selectStatus(st)
-                                        showStatusDropdown = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // 1-Tap Starred Filter Pill
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (starredOnly) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                        },
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                viewModel.toggleStarredOnly()
-                            }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                         ) {
                             Icon(
-                                imageVector = if (starredOnly) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                                contentDescription = "Filter Starred",
-                                tint = if (starredOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                imageVector = Icons.Outlined.Tune,
+                                contentDescription = "Filter & Sort",
+                                tint = if (activeFilterCount > 0) colors.inkPrimary else colors.inkSecondary,
                                 modifier = Modifier.size(14.dp)
                             )
-                            Spacer(modifier = Modifier.width(3.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Starred",
+                                text = "Filter",
                                 fontFamily = InterFontFamily,
-                                fontSize = 12.sp,
-                                fontWeight = if (starredOnly) FontWeight.SemiBold else FontWeight.Medium,
-                                color = if (starredOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                fontSize = 12.5.sp,
+                                fontWeight = if (activeFilterCount > 0) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (activeFilterCount > 0) colors.inkPrimary else colors.inkSecondary
                             )
-                        }
-                    }
-                }
-
-                // Right: Sort Selector + Count + 3-Way Layout Toggle (Grid -> List -> Compact)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box {
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = Color.Transparent,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { showSortDropdown = true }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = sortOrder.label,
-                                    fontFamily = InterFontFamily,
-                                    fontSize = 11.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Icon(
-                                    Icons.Default.ArrowDropDown,
-                                    contentDescription = "Sort Order",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(15.dp)
-                                )
+                            if (activeFilterCount > 0) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.ctaBg),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$activeFilterCount",
+                                        fontFamily = InterFontFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.ctaFg
+                                    )
+                                }
                             }
                         }
-
-                        DropdownMenu(
-                            expanded = showSortDropdown,
-                            onDismissRequest = { showSortDropdown = false }
-                        ) {
-                            SortOrder.entries.forEach { order ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = order.label,
-                                            fontFamily = InterFontFamily,
-                                            fontSize = 13.sp,
-                                            fontWeight = if (sortOrder == order) FontWeight.SemiBold else FontWeight.Normal,
-                                            color = if (sortOrder == order) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    },
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        viewModel.setSortOrder(order)
-                                        showSortDropdown = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    Text(
-                        text = "· ${reels.size}",
-                        fontFamily = InterFontFamily,
-                        fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.toggleViewMode()
-                        },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        val viewIcon = when (viewMode) {
-                            ViewMode.GRID -> Icons.Outlined.GridView
-                            ViewMode.LIST -> Icons.AutoMirrored.Outlined.ViewList
-                            ViewMode.COMPACT -> Icons.Outlined.ViewHeadline
-                        }
-                        Icon(
-                            imageVector = viewIcon,
-                            contentDescription = "Cycle View (${viewMode.name})",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
                     }
                 }
             }
 
-            // Breathing / Shimmer Active Processing Card
+            // Active Processing Card
             AnimatedVisibility(
                 visible = activeJobs.isNotEmpty(),
                 enter = fadeIn(tween(220)) + expandVertically(tween(220)),
@@ -498,9 +403,14 @@ fun LibraryScreen(
                         ViewMode.GRID -> {
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(2),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(20.dp),
+                                contentPadding = PaddingValues(
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    top = 6.dp,
+                                    bottom = 96.dp
+                                ),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 items(reels, key = { it.id }) { reel ->
@@ -511,6 +421,11 @@ fun LibraryScreen(
                                     ) {
                                         ReelGridCard(
                                             reel = reel,
+                                            dotColor = categoryDotColor(
+                                                reel.category,
+                                                categoryColorMap[reel.category] ?: "#52525B",
+                                                colors.isDark
+                                            ),
                                             onClick = { onNavigateToDetail(reel.shortcode) }
                                         )
                                     }
@@ -519,32 +434,74 @@ fun LibraryScreen(
                         }
                         ViewMode.LIST -> {
                             LazyColumn(
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                contentPadding = PaddingValues(
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    top = 6.dp,
+                                    bottom = 96.dp
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                itemsIndexed(reels, key = { _, item -> item.id }) { index, reel ->
-                                    Column(
+                                items(reels, key = { it.id }) { reel ->
+                                    Box(
                                         modifier = Modifier.animateItemPlacement(
                                             spring(stiffness = Spring.StiffnessMediumLow)
                                         )
                                     ) {
-                                        ReelListRow(
+                                        SwipeableReelListRow(
                                             reel = reel,
-                                            onClick = { onNavigateToDetail(reel.shortcode) }
+                                            dotColor = categoryDotColor(
+                                                reel.category,
+                                                categoryColorMap[reel.category] ?: "#52525B",
+                                                colors.isDark
+                                            ),
+                                            onClick = { onNavigateToDetail(reel.shortcode) },
+                                            onCycleStatus = {
+                                                val prev = reel.status
+                                                val next = viewModel.nextTriageStatus(prev)
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                viewModel.setReelStatus(reel.shortcode, next)
+                                                coroutineScope.launch {
+                                                    val res = snackbarHostState.showSnackbar(
+                                                        message = "Marked ${next.lowercase()}",
+                                                        actionLabel = "Undo",
+                                                        duration = SnackbarDuration.Short
+                                                    )
+                                                    if (res == SnackbarResult.ActionPerformed) {
+                                                        viewModel.setReelStatus(reel.shortcode, prev)
+                                                    }
+                                                }
+                                            },
+                                            onToggleStar = {
+                                                val prev = reel.isStarred
+                                                val next = !prev
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                viewModel.setReelStarred(reel.shortcode, next)
+                                                coroutineScope.launch {
+                                                    val res = snackbarHostState.showSnackbar(
+                                                        message = if (next) "Added to Starred" else "Removed from Starred",
+                                                        actionLabel = "Undo",
+                                                        duration = SnackbarDuration.Short
+                                                    )
+                                                    if (res == SnackbarResult.ActionPerformed) {
+                                                        viewModel.setReelStarred(reel.shortcode, prev)
+                                                    }
+                                                }
+                                            }
                                         )
-                                        if (index < reels.lastIndex) {
-                                            HorizontalDivider(
-                                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-                                                thickness = 0.5.dp
-                                            )
-                                        }
                                     }
                                 }
                             }
                         }
                         ViewMode.COMPACT -> {
                             LazyColumn(
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                contentPadding = PaddingValues(
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    top = 4.dp,
+                                    bottom = 96.dp
+                                ),
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 itemsIndexed(reels, key = { _, item -> item.id }) { index, reel ->
@@ -555,13 +512,17 @@ fun LibraryScreen(
                                     ) {
                                         ReelCompactRow(
                                             reel = reel,
-                                            categoryColorHex = categoryColorMap[reel.category] ?: "#2F5D50",
+                                            dotColor = categoryDotColor(
+                                                reel.category,
+                                                categoryColorMap[reel.category] ?: "#52525B",
+                                                colors.isDark
+                                            ),
                                             onClick = { onNavigateToDetail(reel.shortcode) }
                                         )
                                         if (index < reels.lastIndex) {
                                             HorizontalDivider(
-                                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
-                                                thickness = 0.5.dp
+                                                color = colors.borderSubtle,
+                                                thickness = 1.dp
                                             )
                                         }
                                     }
@@ -574,17 +535,189 @@ fun LibraryScreen(
         }
     }
 
-    // Add Reel Dialog
+    // Thumb-Zone Liquid Glass Filter & Sort Sheet
+    if (showFilterSheet) {
+        val sheetShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ModalBottomSheet(
+            onDismissRequest = { showFilterSheet = false },
+            shape = sheetShape,
+            containerColor = colors.glassSurfaceElevated,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 12.dp, bottom = 6.dp)
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(colors.borderFocus.copy(alpha = 0.5f))
+                )
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Filter & Sort",
+                        fontFamily = NewsreaderFontFamily,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.inkPrimary
+                    )
+                    if (activeFilterCount > 0) {
+                        TextButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            viewModel.clearAllFilters()
+                            viewModel.setSortOrder(SortOrder.NEWEST)
+                        }) {
+                            Text("Reset", fontFamily = InterFontFamily, color = colors.inkSecondary)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Status Section
+                Text(
+                    text = "STATUS",
+                    fontFamily = InterFontFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.inkMuted,
+                    letterSpacing = 0.8.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(listOf("All", "UNREAD", "REVIEWED", "TRIED", "ARCHIVED")) { st ->
+                        val label = if (st == "All") "All" else st.lowercase().replaceFirstChar { it.uppercase() }
+                        CategoryChip(
+                            text = label,
+                            selected = selectedStatus == st,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.selectStatus(st)
+                            }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Starred Only Row
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = colors.surfaceCard,
+                    border = BorderStroke(1.dp, colors.borderSubtle),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.toggleStarredOnly()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (starredOnly) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                                contentDescription = null,
+                                tint = if (starredOnly) colors.starAccent else colors.inkSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Starred Only",
+                                fontFamily = InterFontFamily,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.inkPrimary
+                            )
+                        }
+                        Switch(
+                            checked = starredOnly,
+                            onCheckedChange = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.toggleStarredOnly()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.ctaFg,
+                                checkedTrackColor = colors.ctaBg
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Sort By Section
+                Text(
+                    text = "SORT BY",
+                    fontFamily = InterFontFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.inkMuted,
+                    letterSpacing = 0.8.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SortOrder.entries.forEach { order ->
+                        CategoryChip(
+                            text = order.label,
+                            selected = sortOrder == order,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.setSortOrder(order)
+                            }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Quick Manage Categories link
+                OutlinedButton(
+                    onClick = {
+                        showFilterSheet = false
+                        onNavigateToManageCategories()
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, colors.borderSubtle),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Outlined.Folder, contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.inkPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Manage Categories", fontFamily = InterFontFamily, fontSize = 13.sp, color = colors.inkPrimary)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+    }
+
+    // Save Reel Dialog
     if (showAddDialog) {
         var inputUrl by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
+            containerColor = colors.surfaceElevated,
             title = {
                 Text(
                     "Save Instagram Reel",
                     fontFamily = NewsreaderFontFamily,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 20.sp
+                    fontSize = 20.sp,
+                    color = colors.inkPrimary
                 )
             },
             text = {
@@ -593,7 +726,7 @@ fun LibraryScreen(
                         "Paste a public Instagram reel link to extract self-contained knowledge notes:",
                         fontFamily = InterFontFamily,
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = colors.inkSecondary
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
@@ -616,66 +749,17 @@ fun LibraryScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                        containerColor = colors.ctaBg,
+                        contentColor = colors.ctaFg
                     ),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text("Analyze & Save", fontFamily = InterFontFamily, fontWeight = FontWeight.Medium)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showAddDialog = false }) {
-                    Text("Cancel", fontFamily = InterFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        )
-    }
-
-    // Add Category Dialog
-    if (showAddCategoryDialog) {
-        var newCatName by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAddCategoryDialog = false },
-            title = {
-                Text(
-                    "New Category",
-                    fontFamily = NewsreaderFontFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 20.sp
-                )
-            },
-            text = {
-                OutlinedTextField(
-                    value = newCatName,
-                    onValueChange = { newCatName = it },
-                    label = { Text("Category Name", fontFamily = InterFontFamily) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newCatName.isNotBlank()) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.addCategory(newCatName)
-                            showAddCategoryDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("Create", fontFamily = InterFontFamily)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddCategoryDialog = false }) {
-                    Text("Cancel", fontFamily = InterFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Cancel", fontFamily = InterFontFamily, color = colors.inkSecondary)
                 }
             }
         )
@@ -683,36 +767,39 @@ fun LibraryScreen(
 }
 
 @Composable
-fun CategoryTab(
+fun CategoryChip(
     text: String,
     selected: Boolean,
-    colorHex: String? = null,
+    dotColor: Color? = null,
     onClick: () -> Unit
 ) {
+    val colors = LocalSavyorColors.current
+    val shape = RoundedCornerShape(18.dp)
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
-        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent
+        shape = shape,
+        color = if (selected) colors.ctaBg else colors.surfaceCard,
+        border = BorderStroke(1.dp, if (selected) colors.ctaBg else colors.borderSubtle)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
         ) {
-            if (!colorHex.isNullOrBlank()) {
+            if (dotColor != null) {
                 Box(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(parseCategoryColor(colorHex))
+                        .background(dotColor)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
             }
             Text(
                 text = text,
                 fontFamily = InterFontFamily,
-                fontSize = 13.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                fontSize = 12.5.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                color = if (selected) colors.ctaFg else colors.inkSecondary
             )
         }
     }
@@ -720,31 +807,33 @@ fun CategoryTab(
 
 @Composable
 fun ActiveJobsSection(jobs: List<ReelEntity>) {
+    val colors = LocalSavyorColors.current
     val infiniteTransition = rememberInfiniteTransition(label = "processing_breathe")
     val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.85f,
+        initialValue = 0.45f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(950, easing = FastOutSlowInEasing),
+            animation = tween(850, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulse_alpha"
     )
 
-    Surface(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f + (pulseAlpha * 0.04f)),
-        shape = RoundedCornerShape(14.dp)
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+        border = BorderStroke(1.dp, colors.borderSubtle)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha))
+                        .background(colors.triedFg.copy(alpha = pulseAlpha))
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
@@ -752,13 +841,13 @@ fun ActiveJobsSection(jobs: List<ReelEntity>) {
                     fontFamily = InterFontFamily,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary
+                    color = colors.inkPrimary
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 CircularProgressIndicator(
                     modifier = Modifier.size(13.dp),
                     strokeWidth = 1.8.dp,
-                    color = MaterialTheme.colorScheme.primary
+                    color = colors.inkPrimary
                 )
             }
             Spacer(modifier = Modifier.height(5.dp))
@@ -772,7 +861,7 @@ fun ActiveJobsSection(jobs: List<ReelEntity>) {
                     text = "@${job.shortcode} · $stateText",
                     fontFamily = InterFontFamily,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = colors.inkMuted
                 )
             }
         }
@@ -780,264 +869,333 @@ fun ActiveJobsSection(jobs: List<ReelEntity>) {
 }
 
 @Composable
-fun ReelGridCard(reel: ReelEntity, onClick: () -> Unit) {
-    Column(
+fun ReelGridCard(
+    reel: ReelEntity,
+    dotColor: Color,
+    onClick: () -> Unit
+) {
+    val colors = LocalSavyorColors.current
+    val cardShape = RoundedCornerShape(14.dp)
+
+    Card(
+        shape = cardShape,
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+        border = BorderStroke(1.dp, colors.borderSubtle),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
             .springPressClickable(onClick = onClick)
     ) {
-        // Borderless 4:5 Rounded Thumbnail with Frosted Status Badge
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.8f)
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-        ) {
-            if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
-                val context = LocalContext.current
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(File(reel.thumbnailPath))
-                        .crossfade(true)
-                        .size(480, 600)
-                        .build(),
-                    contentDescription = reel.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.PlayCircleOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                        modifier = Modifier.size(34.dp)
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(0.82f)
+                    .background(colors.surfaceRecessed)
+            ) {
+                if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
+                    val context = LocalContext.current
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(File(reel.thumbnailPath))
+                            .crossfade(true)
+                            .size(480, 600)
+                            .build(),
+                        contentDescription = reel.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.PlayCircleOutline,
+                            contentDescription = null,
+                            tint = colors.inkMuted.copy(alpha = 0.4f),
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
                 }
-            }
 
-            if (reel.isStarred) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color(0x99111312),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .size(24.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
+                if (reel.isStarred) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .size(26.dp)
+                            .savyorGlass(shape = CircleShape, elevated = false),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.Star,
                             contentDescription = "Starred",
-                            tint = Color(0xFFE7C77A),
+                            tint = colors.starAccent,
                             modifier = Modifier.size(14.dp)
                         )
                     }
                 }
-            }
 
-            StatusBadge(
-                status = reel.status,
-                isFrosted = true,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 2-line Newsreader Title directly below image
-        Text(
-            text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
-            fontFamily = NewsreaderFontFamily,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            lineHeight = 19.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-
-        Spacer(modifier = Modifier.height(3.dp))
-
-        // Quiet Footer
-        val creatorText = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}"
-        Text(
-            text = "$creatorText · ${reel.category}",
-            fontFamily = InterFontFamily,
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-fun ReelListRow(reel: ReelEntity, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .springPressClickable(onClick = onClick)
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // 72x96 Portrait Thumbnail
-        Box(
-            modifier = Modifier
-                .width(72.dp)
-                .height(96.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-        ) {
-            if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
-                val context = LocalContext.current
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(File(reel.thumbnailPath))
-                        .crossfade(true)
-                        .size(480, 600)
-                        .build(),
-                    contentDescription = reel.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                StatusBadge(
+                    status = reel.status,
+                    isFrosted = true,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
                 )
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.PlayCircleOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
             }
-        }
 
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
-                fontFamily = NewsreaderFontFamily,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                lineHeight = 20.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            if (reel.useWhen.isNotBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                val cleanUseWhen = reel.useWhen.replace(
-                    Regex("^(Use when:|Use when|Refer to this note when:?|Refer to this note when)\\s*", RegexOption.IGNORE_CASE),
-                    ""
-                ).trim()
+            Column(modifier = Modifier.padding(10.dp)) {
                 Text(
-                    text = cleanUseWhen,
-                    fontFamily = InterFontFamily,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
+                    fontFamily = NewsreaderFontFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 19.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = colors.inkPrimary
                 )
-            }
 
-            Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+                // Clean single-line footer: @handle + category dot
                 val creatorText = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}"
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    if (reel.isStarred) {
-                        Icon(
-                            imageVector = Icons.Filled.Star,
-                            contentDescription = "Starred",
-                            tint = Color(0xFFD4A843),
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                    }
                     Text(
-                        text = "$creatorText · ${reel.category}",
+                        text = creatorText,
                         fontFamily = InterFontFamily,
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.inkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(dotColor)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = reel.category,
+                        fontFamily = InterFontFamily,
+                        fontSize = 11.sp,
+                        color = colors.inkSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                StatusBadge(status = reel.status)
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EmptyLibraryView(onAddClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                modifier = Modifier.size(72.dp)
+fun SwipeableReelListRow(
+    reel: ReelEntity,
+    dotColor: Color,
+    onClick: () -> Unit,
+    onCycleStatus: () -> Unit,
+    onToggleStar: () -> Unit
+) {
+    val colors = LocalSavyorColors.current
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    onCycleStatus()
+                    false
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onToggleStar()
+                    false
+                }
+                SwipeToDismissBoxValue.Settled -> false
+            }
+        }
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            val direction = dismissState.dismissDirection
+            val bgColor = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> colors.triedBg
+                SwipeToDismissBoxValue.EndToStart -> colors.reviewedBg
+                else -> colors.surfaceRecessed
+            }
+            val align = if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                Alignment.CenterStart
+            } else {
+                Alignment.CenterEnd
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(bgColor)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = align
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Outlined.BookmarkBorder,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(34.dp)
-                    )
+                if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = colors.triedFg)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Next Status", fontFamily = InterFontFamily, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.triedFg)
+                    }
+                } else if (direction == SwipeToDismissBoxValue.EndToStart) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (reel.isStarred) "Unstar" else "Star", fontFamily = InterFontFamily, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.reviewedFg)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(Icons.Filled.Star, contentDescription = null, tint = colors.reviewedFg)
+                    }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Your library is calm",
-                fontFamily = NewsreaderFontFamily,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Share any Instagram reel to Savyor, or tap below to paste a reel link.",
-                fontFamily = InterFontFamily,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-            Button(
-                onClick = onAddClick,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                shape = RoundedCornerShape(8.dp)
+        },
+        content = {
+            ReelListRow(reel = reel, dotColor = dotColor, onClick = onClick)
+        }
+    )
+}
+
+@Composable
+fun ReelListRow(
+    reel: ReelEntity,
+    dotColor: Color,
+    onClick: () -> Unit
+) {
+    val colors = LocalSavyorColors.current
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+        border = BorderStroke(1.dp, colors.borderSubtle),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .springPressClickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(72.dp)
+                    .height(92.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.surfaceRecessed)
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Add Reel", fontFamily = InterFontFamily, fontWeight = FontWeight.Medium)
+                if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
+                    val context = LocalContext.current
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(File(reel.thumbnailPath))
+                            .crossfade(true)
+                            .size(320, 420)
+                            .build(),
+                        contentDescription = reel.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.PlayCircleOutline,
+                            contentDescription = null,
+                            tint = colors.inkMuted.copy(alpha = 0.4f),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
+                    fontFamily = NewsreaderFontFamily,
+                    fontSize = 15.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 20.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = colors.inkPrimary
+                )
+
+                if (reel.useWhen.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val cleanUseWhen = reel.useWhen.replace(
+                        Regex("^(Use when:|Use when|Refer to this note when:?|Refer to this note when)\\s*", RegexOption.IGNORE_CASE),
+                        ""
+                    ).trim()
+                    Text(
+                        text = cleanUseWhen,
+                        fontFamily = InterFontFamily,
+                        fontSize = 12.sp,
+                        color = colors.inkSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val creatorText = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (reel.isStarred) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = "Starred",
+                                tint = colors.starAccent,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = creatorText,
+                            fontFamily = InterFontFamily,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(dotColor)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = reel.category,
+                            fontFamily = InterFontFamily,
+                            fontSize = 11.sp,
+                            color = colors.inkSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    StatusBadge(status = reel.status)
+                }
             }
         }
     }
@@ -1046,9 +1204,10 @@ fun EmptyLibraryView(onAddClick: () -> Unit) {
 @Composable
 fun ReelCompactRow(
     reel: ReelEntity,
-    categoryColorHex: String,
+    dotColor: Color,
     onClick: () -> Unit
 ) {
+    val colors = LocalSavyorColors.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1060,7 +1219,7 @@ fun ReelCompactRow(
             modifier = Modifier
                 .size(44.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                .background(colors.surfaceRecessed),
             contentAlignment = Alignment.Center
         ) {
             if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
@@ -1079,7 +1238,7 @@ fun ReelCompactRow(
                 Icon(
                     imageVector = Icons.Default.PlayCircleOutline,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    tint = colors.inkMuted.copy(alpha = 0.4f),
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -1089,9 +1248,9 @@ fun ReelCompactRow(
 
         Box(
             modifier = Modifier
-                .size(7.dp)
+                .size(6.dp)
                 .clip(CircleShape)
-                .background(parseCategoryColor(categoryColorHex))
+                .background(dotColor)
         )
 
         Spacer(modifier = Modifier.width(8.dp))
@@ -1103,7 +1262,7 @@ fun ReelCompactRow(
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = colors.inkPrimary,
             modifier = Modifier.weight(1f)
         )
 
@@ -1113,7 +1272,7 @@ fun ReelCompactRow(
             Icon(
                 imageVector = Icons.Filled.Star,
                 contentDescription = "Starred",
-                tint = Color(0xFFD4A843),
+                tint = colors.starAccent,
                 modifier = Modifier.size(14.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
@@ -1124,10 +1283,73 @@ fun ReelCompactRow(
 }
 
 @Composable
+fun EmptyLibraryView(onAddClick: () -> Unit) {
+    val colors = LocalSavyorColors.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = colors.surfaceRecessed,
+                border = BorderStroke(1.dp, colors.borderSubtle),
+                modifier = Modifier.size(72.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Outlined.BookmarkBorder,
+                        contentDescription = null,
+                        tint = colors.inkPrimary,
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Your library is calm",
+                fontFamily = NewsreaderFontFamily,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.inkPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Share any Instagram reel to Savyor, or tap below to paste a reel link.",
+                fontFamily = InterFontFamily,
+                fontSize = 13.sp,
+                color = colors.inkSecondary,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+                onClick = onAddClick,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.ctaBg,
+                    contentColor = colors.ctaFg
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Save Reel", fontFamily = InterFontFamily, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+@Composable
 fun EmptySearchView(
     query: String,
     onClearSearch: () -> Unit
 ) {
+    val colors = LocalSavyorColors.current
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1141,7 +1363,7 @@ fun EmptySearchView(
             Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                tint = colors.inkMuted.copy(alpha = 0.5f),
                 modifier = Modifier.size(44.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -1150,24 +1372,24 @@ fun EmptySearchView(
                 fontFamily = NewsreaderFontFamily,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = colors.inkPrimary
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = if (query.isNotBlank()) "No notes, transcripts, or visual cues matched \"$query\"." else "No reels match the active filters.",
                 fontFamily = InterFontFamily,
                 fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.inkSecondary,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedButton(
                 onClick = onClearSearch,
-                shape = RoundedCornerShape(8.dp),
-                border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, colors.borderSubtle)
             ) {
-                Text("Clear search", fontFamily = InterFontFamily, fontSize = 13.sp)
+                Text("Clear search", fontFamily = InterFontFamily, fontSize = 13.sp, color = colors.inkPrimary)
             }
         }
     }

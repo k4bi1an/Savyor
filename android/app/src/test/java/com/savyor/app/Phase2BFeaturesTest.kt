@@ -69,11 +69,11 @@ class Phase2BFeaturesTest {
         // Must contain 10 curated muted editorial swatches
         assertEquals(10, CategorySwatches.size)
 
-        // Palette must contain exact signature brand colors
-        assertTrue(CategorySwatches.any { it.hex.equals("#2F5D50", ignoreCase = true) }) // Forest Green
-        assertTrue(CategorySwatches.any { it.hex.equals("#74B9A2", ignoreCase = true) }) // Sage
-        assertTrue(CategorySwatches.any { it.hex.equals("#B35446", ignoreCase = true) }) // Terracotta
-        assertTrue(CategorySwatches.any { it.hex.equals("#6E6758", ignoreCase = true) }) // Warm Stone
+        // Palette must contain curated category dot colors
+        assertTrue(CategorySwatches.any { it.hex.equals("#2563EB", ignoreCase = true) }) // Cobalt
+        assertTrue(CategorySwatches.any { it.hex.equals("#C2410C", ignoreCase = true) }) // Terracotta
+        assertTrue(CategorySwatches.any { it.hex.equals("#047857", ignoreCase = true) }) // Emerald
+        assertTrue(CategorySwatches.any { it.hex.equals("#7E22CE", ignoreCase = true) }) // Plum
 
         // Parsing valid colors
         val forestColor = parseCategoryColor("#2F5D50")

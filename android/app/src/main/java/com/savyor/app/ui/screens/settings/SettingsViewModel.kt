@@ -10,6 +10,8 @@ import com.savyor.app.data.local.EncryptedSettingsManager
 import com.savyor.app.data.local.RestoreStats
 import com.savyor.app.data.remote.GeminiFilesClient
 import com.savyor.app.data.remote.YtDlpEngine
+import com.savyor.app.ui.theme.SavyorThemeMode
+import com.savyor.app.ui.theme.SavyorThemeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,6 +71,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _lastBackupMs = MutableStateFlow(settings.lastBackupMs)
     val lastBackupMs: StateFlow<Long> = _lastBackupMs.asStateFlow()
 
+    private val _themeMode = MutableStateFlow(SavyorThemeMode.fromString(settings.themeMode))
+    val themeMode: StateFlow<SavyorThemeMode> = _themeMode.asStateFlow()
+
     init {
         refreshEngineVersion()
         calculateStorage()
@@ -88,6 +93,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setAutoUpdateYtDlp(enabled: Boolean) {
         settings.autoUpdateYtDlp = enabled
         _autoUpdateYtDlp.value = enabled
+    }
+
+    fun setThemeMode(mode: SavyorThemeMode) {
+        settings.themeMode = mode.name
+        _themeMode.value = mode
+        SavyorThemeState.setThemeMode(mode)
     }
 
     fun refreshEngineVersion() {

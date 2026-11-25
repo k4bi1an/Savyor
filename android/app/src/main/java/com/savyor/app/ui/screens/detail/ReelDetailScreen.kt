@@ -93,15 +93,18 @@ fun ReelDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     var viewingFrameIndex by remember { mutableStateOf<Int?>(null) }
+    var isEditingMyNote by remember { mutableStateOf(false) }
 
     if (reel == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            CircularProgressIndicator(color = LocalSavyorColors.current.inkPrimary)
         }
         return
     }
 
+    val colors = LocalSavyorColors.current
     val currentReel = reel!!
+    var myNoteDraft by remember(currentReel.userNote) { mutableStateOf(currentReel.userNote) }
     val gson = remember { Gson() }
 
     // Parse JSON fields safely
@@ -176,8 +179,9 @@ fun ReelDetailScreen(
     val tabPagerState = rememberPagerState(initialPage = 0, pageCount = { 3 })
 
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            Column {
+            Column(modifier = Modifier.background(colors.glassSurface)) {
                 TopAppBar(
                     title = {
                         AnimatedVisibility(
@@ -307,22 +311,79 @@ fun ReelDetailScreen(
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = if (showTopBarTitle) {
-                            MaterialTheme.colorScheme.background.copy(alpha = 0.96f)
-                        } else {
-                            MaterialTheme.colorScheme.background
-                        }
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
                     )
                 )
-                AnimatedVisibility(visible = showTopBarTitle) {
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                        thickness = 0.5.dp
-                    )
+                HorizontalDivider(
+                    color = colors.borderSubtle,
+                    thickness = 1.dp
+                )
+            }
+        },
+        bottomBar = {
+            AnimatedVisibility(
+                visible = isEditingMyNote,
+                enter = slideInVertically { it } + fadeIn(tween(180)),
+                exit = slideOutVertically { it } + fadeOut(tween(150))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .imePadding()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .savyorGlass(shape = RoundedCornerShape(18.dp), elevated = true)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Editing My Note",
+                            fontFamily = InterFontFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.inkSecondary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                onClick = {
+                                    myNoteDraft = currentReel.userNote
+                                    isEditingMyNote = false
+                                }
+                            ) {
+                                Text(
+                                    "Cancel",
+                                    fontFamily = InterFontFamily,
+                                    fontSize = 13.sp,
+                                    color = colors.inkSecondary
+                                )
+                            }
+                            Button(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.updateUserNote(myNoteDraft.trim())
+                                    isEditingMyNote = false
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.ctaBg,
+                                    contentColor = colors.ctaFg
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                Text("Save Note", fontFamily = InterFontFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
                 }
             }
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = colors.bgCanvas
     ) { paddingValues ->
         LazyColumn(
             state = listState,
@@ -448,58 +509,68 @@ fun ReelDetailScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    // Slim Left-Accented Use-When Bar
+                    // Primary Highlighted Architectural Use-When Block
                     if (currentReel.useWhen.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
                         val cleanUseWhen = currentReel.useWhen.replace(
                             Regex("^(Use when:|Use when|Refer to this note when:?|Refer to this note when)\\s*", RegexOption.IGNORE_CASE),
                             ""
                         ).trim()
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = colors.surfaceCard,
+                            border = BorderStroke(1.dp, colors.borderSubtle),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .width(2.5.dp)
-                                    .height(26.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "USE WHEN",
-                                    fontFamily = InterFontFamily,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 0.6.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(3.dp)
+                                        .height(30.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(colors.inkPrimary)
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = cleanUseWhen,
-                                    fontFamily = InterFontFamily,
-                                    fontSize = 13.5.sp,
-                                    lineHeight = 19.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "USE WHEN",
+                                        fontFamily = InterFontFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        letterSpacing = 0.8.sp,
+                                        color = colors.inkMuted
+                                    )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = cleanUseWhen,
+                                        fontFamily = InterFontFamily,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        lineHeight = 20.sp,
+                                        color = colors.inkPrimary
+                                    )
+                                }
                             }
                         }
                     }
 
                     // Personal "My Note" Field
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     MyNoteCard(
                         userNote = currentReel.userNote,
-                        onSaveNote = { note ->
-                            viewModel.updateUserNote(note)
-                        }
+                        isEditing = isEditingMyNote,
+                        draftText = myNoteDraft,
+                        onStartEditing = {
+                            myNoteDraft = currentReel.userNote
+                            isEditingMyNote = true
+                        },
+                        onDraftChange = { myNoteDraft = it }
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -536,49 +607,53 @@ fun ReelDetailScreen(
                 }
             }
 
-            // Swipeable Tab Header
+            // Segmented Tab Rail (surfaceRecessed track + surfaceCard active pill)
             item {
                 val tabTitles = listOf("Notes", "Transcript", "Links (${extractedResources.size})")
-                TabRow(
-                    selectedTabIndex = tabPagerState.currentPage,
-                    containerColor = MaterialTheme.colorScheme.background,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    indicator = { tabPositions ->
-                        if (tabPagerState.currentPage < tabPositions.size) {
-                            TabRowDefaults.SecondaryIndicator(
-                                modifier = Modifier.tabIndicatorOffset(tabPositions[tabPagerState.currentPage]),
-                                height = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    },
-                    divider = {
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                            thickness = 0.5.dp
-                        )
-                    }
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = colors.surfaceRecessed,
+                    border = BorderStroke(1.dp, colors.borderSubtle),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
                 ) {
-                    tabTitles.forEachIndexed { index, title ->
-                        val selected = tabPagerState.currentPage == index
-                        Tab(
-                            selected = selected,
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                coroutineScope.launch {
-                                    tabPagerState.animateScrollToPage(index)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        tabTitles.forEachIndexed { index, title ->
+                            val selected = tabPagerState.currentPage == index
+                            Surface(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    coroutineScope.launch {
+                                        tabPagerState.animateScrollToPage(index)
+                                    }
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (selected) colors.surfaceCard else Color.Transparent,
+                                border = if (selected) BorderStroke(1.dp, colors.borderSubtle) else null,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = title,
+                                        fontFamily = InterFontFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                        color = if (selected) colors.inkPrimary else colors.inkMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
-                            },
-                            text = {
-                                Text(
-                                    text = title,
-                                    fontFamily = InterFontFamily,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
-                        )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(18.dp))
@@ -676,8 +751,8 @@ private fun MomentPortraitCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.75f)
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                .clip(RoundedCornerShape(12.dp))
+                .background(LocalSavyorColors.current.surfaceRecessed)
         ) {
             val context = LocalContext.current
             AsyncImage(
@@ -977,10 +1052,10 @@ private fun NotesTabContent(
 
         // Caveats / Context Callout
         if (caveats.isNotEmpty()) {
-            val dark = isSystemInDarkTheme()
-            val caveatBg = if (dark) StatusBadgeColors.CaveatBgDark else StatusBadgeColors.CaveatBgLight
-            val caveatBorder = if (dark) StatusBadgeColors.CaveatBorderDark else StatusBadgeColors.CaveatBorderLight
-            val caveatText = if (dark) StatusBadgeColors.CaveatTextDark else StatusBadgeColors.CaveatTextLight
+            val savyorColors = LocalSavyorColors.current
+            val caveatBg = savyorColors.caveatBg
+            val caveatBorder = savyorColors.caveatBorder
+            val caveatText = savyorColors.caveatText
 
             Surface(
                 shape = RoundedCornerShape(12.dp),
@@ -1630,25 +1705,26 @@ fun shareFormattedNote(
 @Composable
 fun MyNoteCard(
     userNote: String,
-    onSaveNote: (String) -> Unit
+    isEditing: Boolean,
+    draftText: String,
+    onStartEditing: () -> Unit,
+    onDraftChange: (String) -> Unit
 ) {
-    var isEditing by remember { mutableStateOf(false) }
-    var draftText by remember(userNote) { mutableStateOf(userNote) }
+    val colors = LocalSavyorColors.current
     val haptic = LocalHapticFeedback.current
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable(enabled = !isEditing) {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                isEditing = true
+                onStartEditing()
             },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
+        border = BorderStroke(1.dp, if (isEditing) colors.borderFocus else colors.borderSubtle),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1660,7 +1736,7 @@ fun MyNoteCard(
                     Icon(
                         imageVector = Icons.Outlined.EditNote,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = colors.inkPrimary,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -1669,7 +1745,7 @@ fun MyNoteCard(
                         fontFamily = InterFontFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = colors.inkMuted,
                         letterSpacing = 0.8.sp
                     )
                 }
@@ -1678,14 +1754,14 @@ fun MyNoteCard(
                     IconButton(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            isEditing = true
+                            onStartEditing()
                         },
                         modifier = Modifier.size(24.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Edit,
                             contentDescription = "Edit note",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = colors.inkSecondary,
                             modifier = Modifier.size(14.dp)
                         )
                     }
@@ -1697,63 +1773,25 @@ fun MyNoteCard(
             if (isEditing) {
                 OutlinedTextField(
                     value = draftText,
-                    onValueChange = { draftText = it },
+                    onValueChange = onDraftChange,
                     placeholder = {
                         Text(
                             text = "Add personal observations, recipe tweaks, or action items...",
                             fontFamily = InterFontFamily,
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            color = colors.inkMuted
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     minLines = 3,
                     textStyle = LocalTextStyle.current.copy(
                         fontFamily = InterFontFamily,
                         fontSize = 13.5.sp,
                         lineHeight = 19.sp,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = colors.inkPrimary
                     )
                 )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(
-                        onClick = {
-                            draftText = userNote
-                            isEditing = false
-                        }
-                    ) {
-                        Text(
-                            "Cancel",
-                            fontFamily = InterFontFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onSaveNote(draftText.trim())
-                            isEditing = false
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Text("Save Note", fontFamily = InterFontFamily, fontSize = 12.sp)
-                    }
-                }
             } else {
                 if (userNote.isNotBlank()) {
                     Text(
@@ -1761,14 +1799,14 @@ fun MyNoteCard(
                         fontFamily = InterFontFamily,
                         fontSize = 13.5.sp,
                         lineHeight = 20.sp,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = colors.inkPrimary
                     )
                 } else {
                     Text(
                         text = "Tap to add personal observations, recipe tweaks, or reminders...",
                         fontFamily = InterFontFamily,
                         fontSize = 12.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        color = colors.inkMuted
                     )
                 }
             }

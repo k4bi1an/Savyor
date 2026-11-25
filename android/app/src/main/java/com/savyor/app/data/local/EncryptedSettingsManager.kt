@@ -36,6 +36,7 @@ class EncryptedSettingsManager(private val context: Context) {
         private const val KEY_LAST_BACKUP_MS = "last_backup_ms"
         private const val KEY_LIBRARY_VIEW_MODE = "library_view_mode"
         private const val KEY_LIBRARY_SORT_ORDER = "library_sort_order"
+        private const val KEY_THEME_MODE = "theme_mode"
     }
 
     var geminiApiKey: String
@@ -69,6 +70,10 @@ class EncryptedSettingsManager(private val context: Context) {
     var librarySortOrder: String
         get() = prefs.getString(KEY_LIBRARY_SORT_ORDER, "NEWEST") ?: "NEWEST"
         set(value) = prefs.edit().putString(KEY_LIBRARY_SORT_ORDER, value).apply()
+
+    var themeMode: String
+        get() = prefs.getString(KEY_THEME_MODE, "SYSTEM") ?: "SYSTEM"
+        set(value) = prefs.edit().putString(KEY_THEME_MODE, value).apply()
 
     fun isApiKeyConfigured(): Boolean = geminiApiKey.isNotBlank()
 

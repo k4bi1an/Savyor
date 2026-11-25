@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="saved_reels_count">
+        <item quantity="one">%d saved reel</item>
+        <item quantity="other">%d saved reels</item>
+    </plurals>
+</resources>
