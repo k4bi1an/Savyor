@@ -68,6 +68,9 @@ $captionSection$correctionsSection
    - If none match clearly or the content does not fit any specific category, assign "Other".
    - Learn from user's category correction history when applicable.
 
+9. Visual Memory Cues ("visual_memory"):
+   - Write 1–2 concise English sentences describing distinctive visible appearance cues so the user can find the reel by visual recall alone: speaker clothing/colors, setting/background, lighting, and distinctive objects/props (e.g., "Man in navy hoodie sitting in a bedroom with One Piece posters on the wall, showing a white canvas animation").
+
 Output STRICT JSON conforming to the following structure with no enclosing markdown fences:
 {
   "title": "Clear concise English title stating the exact subject",
@@ -75,6 +78,7 @@ Output STRICT JSON conforming to the following structure with no enclosing markd
   "tags": ["tag1", "tag2"],
   "summary": "Direct, self-contained summary stating the core findings immediately.",
   "use_when": "Concise 6-12 word situation phrase without preamble",
+  "visual_memory": "1-2 concise sentences of visible appearance cues (clothing, setting, lighting, props)",
   "source_language": "English | Tamil | Hindi + English | etc.",
   "transcript": "[0:00] Timestamped English transcript...",
   "original_transcript": "Optional original language transcript if non-English, else null",

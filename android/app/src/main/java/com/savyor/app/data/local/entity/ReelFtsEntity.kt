@@ -29,5 +29,8 @@ data class ReelFtsEntity(
     val structuredContent: String,
 
     @ColumnInfo(name = "user_note")
-    val userNote: String
+    val userNote: String,
+
+    @ColumnInfo(name = "visual_memory")
+    val visualMemory: String
 )

@@ -124,6 +124,7 @@ class ProcessReelWorker(
                 extractedResources = gson.toJson(analysis.extractedResources),
                 caveats = gson.toJson(analysis.caveats),
                 useWhen = analysis.useWhen,
+                visualMemory = analysis.visualMemory,
                 thumbnailPath = framesResult.thumbnailPath,
                 processingState = "COMPLETED",
                 errorMessage = null,

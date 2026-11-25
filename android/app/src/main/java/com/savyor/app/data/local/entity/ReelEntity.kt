@@ -11,7 +11,8 @@ import androidx.room.PrimaryKey
         Index(value = ["shortcode"], unique = true),
         Index(value = ["category"]),
         Index(value = ["status"]),
-        Index(value = ["processing_state"])
+        Index(value = ["processing_state"]),
+        Index(value = ["is_starred"])
     ]
 )
 data class ReelEntity(
@@ -74,6 +75,12 @@ data class ReelEntity(
 
     @ColumnInfo(name = "user_note")
     val userNote: String = "",
+
+    @ColumnInfo(name = "visual_memory")
+    val visualMemory: String = "",
+
+    @ColumnInfo(name = "is_starred")
+    val isStarred: Boolean = false,
 
     @ColumnInfo(name = "status")
     val status: String = "UNREAD", // UNREAD, REVIEWED, TRIED, ARCHIVED

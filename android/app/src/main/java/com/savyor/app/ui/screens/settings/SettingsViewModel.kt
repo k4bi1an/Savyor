@@ -66,6 +66,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _backupRestoreMessage = MutableSharedFlow<String>()
     val backupRestoreMessage: SharedFlow<String> = _backupRestoreMessage.asSharedFlow()
 
+    private val _lastBackupMs = MutableStateFlow(settings.lastBackupMs)
+    val lastBackupMs: StateFlow<Long> = _lastBackupMs.asStateFlow()
+
     init {
         refreshEngineVersion()
         calculateStorage()
@@ -178,6 +181,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _isBackingUp.value = false
             res.fold(
                 onSuccess = { stats ->
+                    val now = System.currentTimeMillis()
+                    settings.lastBackupMs = now
+                    _lastBackupMs.value = now
                     val mb = "%.2f".format(stats.fileSizeBytes.toDouble() / (1024 * 1024))
                     _backupRestoreMessage.emit("Backup created ($mb MB, ${stats.snapshotCount} snapshots)")
                 },

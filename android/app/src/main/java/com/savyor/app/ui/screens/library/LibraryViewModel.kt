@@ -3,6 +3,7 @@ package com.savyor.app.ui.screens.library
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.savyor.app.data.local.EncryptedSettingsManager
 import com.savyor.app.data.local.FtsQuerySanitizer
 import com.savyor.app.data.local.SavyorDatabase
 import com.savyor.app.data.local.entity.CategoryEntity
@@ -14,7 +15,27 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 enum class ViewMode {
-    GRID, LIST
+    GRID, LIST, COMPACT;
+
+    fun next(): ViewMode = when (this) {
+        GRID -> LIST
+        LIST -> COMPACT
+        COMPACT -> GRID
+    }
+
+    companion object {
+        fun fromString(raw: String): ViewMode = entries.firstOrNull { it.name == raw } ?: GRID
+    }
+}
+
+enum class SortOrder(val label: String) {
+    NEWEST("Newest"),
+    OLDEST("Oldest"),
+    TITLE_AZ("Title A–Z");
+
+    companion object {
+        fun fromString(raw: String): SortOrder = entries.firstOrNull { it.name == raw } ?: NEWEST
+    }
 }
 
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
@@ -23,6 +44,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val reelDao = db.reelDao()
     private val categoryDao = db.categoryDao()
     private val scheduler = WorkManagerScheduler(application)
+    private val settings = EncryptedSettingsManager(application)
 
     val categories: StateFlow<List<CategoryEntity>> = categoryDao.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -36,38 +58,68 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _selectedStatus = MutableStateFlow("All")
     val selectedStatus: StateFlow<String> = _selectedStatus.asStateFlow()
 
+    private val _starredOnly = MutableStateFlow(false)
+    val starredOnly: StateFlow<Boolean> = _starredOnly.asStateFlow()
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _viewMode = MutableStateFlow(ViewMode.GRID)
+    private val _viewMode = MutableStateFlow(ViewMode.fromString(settings.libraryViewMode))
     val viewMode: StateFlow<ViewMode> = _viewMode.asStateFlow()
+
+    private val _sortOrder = MutableStateFlow(SortOrder.fromString(settings.librarySortOrder))
+    val sortOrder: StateFlow<SortOrder> = _sortOrder.asStateFlow()
 
     private val _snackbarMessage = MutableSharedFlow<String>()
     val snackbarMessage: SharedFlow<String> = _snackbarMessage.asSharedFlow()
+
+    private data class FilterState(
+        val category: String,
+        val status: String,
+        val query: String,
+        val starredOnly: Boolean,
+        val sortOrder: SortOrder
+    )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val reels: StateFlow<List<ReelEntity>> = combine(
         _selectedCategory,
         _selectedStatus,
-        _searchQuery
-    ) { category, status, query ->
-        Triple(category, status, query)
-    }.flatMapLatest { (category, status, query) ->
-        when {
-            query.isNotBlank() -> {
-                val ftsQuery = FtsQuerySanitizer.sanitizeForFts5(query)
+        _searchQuery,
+        _starredOnly,
+        _sortOrder
+    ) { category, status, query, starredOnly, sortOrder ->
+        FilterState(category, status, query, starredOnly, sortOrder)
+    }.flatMapLatest { state ->
+        val baseFlow = when {
+            state.query.isNotBlank() -> {
+                val ftsQuery = FtsQuerySanitizer.sanitizeForFts5(state.query)
                 if (ftsQuery != null) {
                     reelDao.searchReelsFts(ftsQuery).catch {
-                        emitAll(reelDao.searchReelsFallback(query.trim()))
+                        emitAll(reelDao.searchReelsFallback(state.query.trim()))
                     }
                 } else {
-                    reelDao.searchReelsFallback(query.trim())
+                    reelDao.searchReelsFallback(state.query.trim())
                 }
             }
-            category == "All" && status == "All" -> reelDao.getAllReels()
-            category == "All" -> reelDao.getReelsByStatus(status)
-            status == "All" -> reelDao.getReelsByCategory(category)
-            else -> reelDao.getReelsByCategoryAndStatus(category, status)
+            state.category == "All" && state.status == "All" -> reelDao.getAllReels()
+            state.category == "All" -> reelDao.getReelsByStatus(state.status)
+            state.status == "All" -> reelDao.getReelsByCategory(state.category)
+            else -> reelDao.getReelsByCategoryAndStatus(state.category, state.status)
+        }
+
+        baseFlow.map { list ->
+            val filtered = list.filter { reel ->
+                val matchesStar = !state.starredOnly || reel.isStarred
+                val matchesCat = state.query.isBlank() || state.category == "All" || reel.category == state.category
+                val matchesStatus = state.query.isBlank() || state.status == "All" || reel.status == state.status
+                matchesStar && matchesCat && matchesStatus
+            }
+            when (state.sortOrder) {
+                SortOrder.NEWEST -> filtered.sortedByDescending { it.createdAt }
+                SortOrder.OLDEST -> filtered.sortedBy { it.createdAt }
+                SortOrder.TITLE_AZ -> filtered.sortedBy { it.title.lowercase() }
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -79,12 +131,30 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _selectedStatus.value = status
     }
 
+    fun toggleStarredOnly() {
+        _starredOnly.value = !_starredOnly.value
+    }
+
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
     }
 
+    fun clearAllFilters() {
+        _searchQuery.value = ""
+        _selectedCategory.value = "All"
+        _selectedStatus.value = "All"
+        _starredOnly.value = false
+    }
+
     fun toggleViewMode() {
-        _viewMode.value = if (_viewMode.value == ViewMode.GRID) ViewMode.LIST else ViewMode.GRID
+        val next = _viewMode.value.next()
+        _viewMode.value = next
+        settings.libraryViewMode = next.name
+    }
+
+    fun setSortOrder(order: SortOrder) {
+        _sortOrder.value = order
+        settings.librarySortOrder = order.name
     }
 
     fun enqueueReel(url: String) {

@@ -134,14 +134,14 @@ def main():
             shortcode, original_url, clean_url, creator, source_language,
             title, summary, category, tags, transcript, original_transcript,
             key_takeaways, key_moments, structured_content, extracted_resources,
-            caveats, use_when, user_note, thumbnail_path, status, processing_state,
+            caveats, use_when, user_note, visual_memory, is_starred, thumbnail_path, status, processing_state,
             created_at, updated_at
         ) VALUES (
             '{sc}', 'https://www.instagram.com/reel/{sc}/', 'https://www.instagram.com/reel/{sc}/', '{r["creator"]}', '{r["source_language"]}',
             '{r["title"].replace("'", "''")}', '{r["summary"].replace("'", "''")}', '{r["category"]}', '["tech"]',
             '[0:00] Overview transcript...', NULL,
             '{takeaways_json.replace("'", "''")}', '{moments_json.replace("'", "''")}', '{structured_json.replace("'", "''")}', '{resources_json.replace("'", "''")}',
-            '{caveats_json.replace("'", "''")}', '{r["use_when"].replace("'", "''")}', '{r["user_note"].replace("'", "''")}', '{thumb_on_device}',
+            '{caveats_json.replace("'", "''")}', '{r["use_when"].replace("'", "''")}', '{r["user_note"].replace("'", "''")}', 'Studio desk with warm ambient lighting', 1, '{thumb_on_device}',
             'UNREAD', 'COMPLETED', 1700000000000, 1700000000000
         );
         """
@@ -152,7 +152,7 @@ def main():
         f.write(full_sql)
 
     subprocess.run([ADB, "push", "seed_temp.sql", "/data/local/tmp/seed.sql"], check=True)
-    subprocess.run([ADB, "shell", "su", "0", "sqlite3", "/data/data/com.savyor.app/databases/savyor.db", ".read /data/local/tmp/seed.sql"], check=True)
+    subprocess.run([ADB, "shell", "su", "0", "sh", "-c", "cat /data/local/tmp/seed.sql | sqlite3 /data/data/com.savyor.app/databases/savyor.db"], check=True)
     print("Database seeded successfully with reels and custom categories.")
 
 if __name__ == "__main__":

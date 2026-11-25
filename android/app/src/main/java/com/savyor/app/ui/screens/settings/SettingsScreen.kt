@@ -46,6 +46,7 @@ fun SettingsScreen(
     val storageStats by viewModel.storageStats.collectAsState()
     val isBackingUp by viewModel.isBackingUp.collectAsState()
     val isRestoring by viewModel.isRestoring.collectAsState()
+    val lastBackupMs by viewModel.lastBackupMs.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     var showApiKeyDialog by remember { mutableStateOf(false) }
@@ -375,18 +376,32 @@ fun SettingsScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text(
-                                    "Export Backup (.zip)",
+                                    "Backup to Google Drive / Files (.zip)",
                                     fontFamily = InterFontFamily,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 14.sp
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    "Checkpoint database and archive all notes, categories, and snapshots",
+                                    "Save all notes, categories, and snapshots directly to Google Drive or phone storage",
                                     fontFamily = InterFontFamily,
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                if (lastBackupMs > 0L) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    val formattedDate = remember(lastBackupMs) {
+                                        java.text.SimpleDateFormat("MMM d, yyyy · h:mm a", java.util.Locale.getDefault())
+                                            .format(java.util.Date(lastBackupMs))
+                                    }
+                                    Text(
+                                        text = "Last backup: $formattedDate",
+                                        fontFamily = InterFontFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                             OutlinedButton(
                                 onClick = {
@@ -419,14 +434,14 @@ fun SettingsScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text(
-                                    "Restore Backup (.zip)",
+                                    "Restore from Backup (.zip)",
                                     fontFamily = InterFontFamily,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 14.sp
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    "Safely restore library data with Zip Slip path traversal protection",
+                                    "Restore notes, categories, and snapshots from a backup archive",
                                     fontFamily = InterFontFamily,
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant

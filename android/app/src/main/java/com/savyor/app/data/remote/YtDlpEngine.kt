@@ -3,6 +3,7 @@ package com.savyor.app.data.remote
 import android.content.Context
 import android.util.Log
 import com.google.gson.JsonParser
+import com.savyor.app.data.local.EncryptedSettingsManager
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +37,8 @@ class YtDlpEngine(private val context: Context) : IReelDownloader {
 
     override suspend fun updateEngine(): Pair<String, String> = withContext(Dispatchers.IO) {
         init()
+        val settings = EncryptedSettingsManager(context.applicationContext)
+        settings.lastYtDlpUpdateCheckMs = System.currentTimeMillis()
         val beforeVersion = YoutubeDL.getInstance().version(context.applicationContext) ?: "unknown"
         try {
             val status = YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel.STABLE)
@@ -56,6 +59,23 @@ class YtDlpEngine(private val context: Context) : IReelDownloader {
 
     override suspend fun downloadReel(url: String, shortcode: String): ReelDownloadResult = withContext(Dispatchers.IO) {
         init()
+        val settings = EncryptedSettingsManager(context.applicationContext)
+        try {
+            executeDownload(url, shortcode)
+        } catch (firstError: Exception) {
+            val elapsedSinceCheck = System.currentTimeMillis() - settings.lastYtDlpUpdateCheckMs
+            val twelveHoursMs = 12L * 3600L * 1000L
+            if (elapsedSinceCheck > twelveHoursMs) {
+                Log.w("YtDlpEngine", "Download failed (${firstError.message}); running self-healing yt-dlp update and retrying once...")
+                updateEngine()
+                executeDownload(url, shortcode)
+            } else {
+                throw firstError
+            }
+        }
+    }
+
+    private fun executeDownload(url: String, shortcode: String): ReelDownloadResult {
         val startTime = System.currentTimeMillis()
         val downloadDir = File(context.cacheDir, "reels_temp").apply { mkdirs() }
         val outputTemplate = File(downloadDir, "$shortcode.%(ext)s").absolutePath
@@ -107,7 +127,7 @@ class YtDlpEngine(private val context: Context) : IReelDownloader {
         val fileSize = videoFile.length()
         Log.i("YtDlpEngine", "Downloaded reel $shortcode: size=$fileSize bytes in ${elapsed}ms")
 
-        ReelDownloadResult(
+        return ReelDownloadResult(
             videoFile = videoFile,
             creator = creator,
             caption = caption,

@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
         CategoryEntity::class,
         CategoryCorrectionEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class SavyorDatabase : RoomDatabase() {
@@ -62,6 +62,25 @@ abstract class SavyorDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Add visual_memory and is_starred columns to reels
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `visual_memory` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `is_starred` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_reels_is_starred` ON `reels` (`is_starred`)")
+
+                // 2. Recreate reels_fts with visual_memory included
+                db.execSQL("DROP TABLE IF EXISTS `reels_fts`")
+                db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS `reels_fts` USING FTS4(`title` TEXT NOT NULL, `summary` TEXT NOT NULL, `transcript` TEXT NOT NULL, `original_transcript` TEXT, `tags` TEXT NOT NULL, `creator` TEXT NOT NULL, `structured_content` TEXT NOT NULL, `user_note` TEXT NOT NULL, `visual_memory` TEXT NOT NULL, content=`reels`)")
+
+                // 3. Repopulate reels_fts from existing reels
+                db.execSQL("""
+                    INSERT INTO `reels_fts` (`docid`, `title`, `summary`, `transcript`, `original_transcript`, `tags`, `creator`, `structured_content`, `user_note`, `visual_memory`)
+                    SELECT `id`, `title`, `summary`, `transcript`, `original_transcript`, `tags`, `creator`, `structured_content`, `user_note`, `visual_memory` FROM `reels`
+                """.trimIndent())
+            }
+        }
+
         fun getInstance(context: Context): SavyorDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -69,7 +88,7 @@ abstract class SavyorDatabase : RoomDatabase() {
                     SavyorDatabase::class.java,
                     "savyor.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

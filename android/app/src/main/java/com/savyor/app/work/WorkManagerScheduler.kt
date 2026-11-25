@@ -37,7 +37,7 @@ class WorkManagerScheduler(private val context: Context) {
         }
     }
 
-    suspend fun enqueueReel(sharedText: String): EnqueueResult = withContext(Dispatchers.IO) {
+    suspend fun enqueueReel(sharedText: String, forceReanalyze: Boolean = false): EnqueueResult = withContext(Dispatchers.IO) {
         val shortcode = extractShortcode(sharedText)
             ?: return@withContext EnqueueResult.InvalidUrl("No valid Instagram reel URL found in shared text")
 
@@ -62,12 +62,12 @@ class WorkManagerScheduler(private val context: Context) {
                 reelDao.insert(newReel)
                 isNew = true
                 Log.i(TAG, "Created new reel entry for $shortcode in database")
-            } else if (existingReel.processingState == "COMPLETED") {
+            } else if (existingReel.processingState == "COMPLETED" && !forceReanalyze) {
                 Log.i(TAG, "Reel $shortcode is already processed and saved")
                 return@withContext EnqueueResult.Success(shortcode, isNew = false)
-            } else if (existingReel.processingState == "FAILED") {
+            } else {
                 reelDao.updateProcessingState(shortcode, "QUEUED", null)
-                Log.i(TAG, "Resetting previously failed reel $shortcode to QUEUED for retry")
+                Log.i(TAG, "Resetting reel $shortcode to QUEUED (forceReanalyze=$forceReanalyze)")
             }
 
             // Build WorkRequest with network constraints

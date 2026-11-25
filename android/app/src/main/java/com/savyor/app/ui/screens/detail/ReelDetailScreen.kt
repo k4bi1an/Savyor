@@ -206,10 +206,22 @@ fun ReelDetailScreen(
                         }
                     },
                     actions = {
+                        // Star / Favorite Toggle
+                        IconButton(onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            viewModel.toggleStarred()
+                        }) {
+                            Icon(
+                                imageVector = if (currentReel.isStarred) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                                contentDescription = if (currentReel.isStarred) "Unstar Reel" else "Star Reel",
+                                tint = if (currentReel.isStarred) Color(0xFFD4A843) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
                         // Copy Markdown
                         IconButton(onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            copyMarkdownNotes(context, currentReel, keyTakeaways, structuredContent)
+                            copyMarkdownNotes(context, currentReel, keyTakeaways, structuredContent, extractedResources)
                         }) {
                             Icon(
                                 Icons.Outlined.ContentCopy,
@@ -245,6 +257,27 @@ fun ReelDetailScreen(
                                 expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false }
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("Share note", fontFamily = InterFontFamily) },
+                                    leadingIcon = { Icon(Icons.Outlined.Share, contentDescription = null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        shareFormattedNote(context, currentReel, keyTakeaways, structuredContent, extractedResources)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Re-analyze reel", fontFamily = InterFontFamily) },
+                                    leadingIcon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.reanalyzeReel {
+                                            Toast.makeText(context, "Reel queued for re-analysis", Toast.LENGTH_SHORT).show()
+                                            onNavigateBack()
+                                        }
+                                    }
+                                )
                                 DropdownMenuItem(
                                     text = { Text("Change Category", fontFamily = InterFontFamily) },
                                     leadingIcon = { Icon(Icons.Outlined.Folder, contentDescription = null) },
@@ -999,6 +1032,35 @@ private fun NotesTabContent(
                 }
             }
         }
+
+        // Subtle Visual Memory Cue (for visual recall context)
+        if (reel.visualMemory.isNotBlank()) {
+            Spacer(modifier = Modifier.height(20.dp))
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "VISUAL MEMORY CUE",
+                        fontFamily = InterFontFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.7.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = reel.visualMemory,
+                        fontFamily = InterFontFamily,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1472,13 +1534,14 @@ fun formatTimestamp(seconds: Int): String {
     return "%d:%02d".format(mins, secs)
 }
 
-fun copyMarkdownNotes(
-    context: Context,
+fun buildFormattedNoteText(
     reel: ReelEntity,
     takeaways: List<String>,
-    structured: StructuredContent?
-) {
-    val md = buildString {
+    structured: StructuredContent?,
+    resources: List<ExtractedResource> = emptyList(),
+    includeTranscript: Boolean = true
+): String {
+    return buildString {
         appendLine("# ${reel.title}")
         appendLine("**Category:** ${reel.category} | **Creator:** @${reel.creator} | **Language:** ${reel.sourceLanguage}")
         appendLine("**Original Reel:** ${reel.cleanUrl}")
@@ -1520,15 +1583,48 @@ fun copyMarkdownNotes(
             }
             appendLine()
         }
-        if (reel.transcript.isNotBlank()) {
+        if (resources.isNotEmpty()) {
+            appendLine("## Links & Resources")
+            resources.forEach { res ->
+                val urlPart = if (res.url.isNotBlank()) " — ${res.url}" else ""
+                appendLine("- **${res.name}**$urlPart: ${res.description}")
+            }
+            appendLine()
+        }
+        if (includeTranscript && reel.transcript.isNotBlank()) {
             appendLine("## Transcript")
             appendLine(reel.transcript)
         }
-    }
+    }.trim()
+}
 
+fun copyMarkdownNotes(
+    context: Context,
+    reel: ReelEntity,
+    takeaways: List<String>,
+    structured: StructuredContent?,
+    resources: List<ExtractedResource> = emptyList()
+) {
+    val md = buildFormattedNoteText(reel, takeaways, structured, resources, includeTranscript = true)
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("Savyor Note", md))
     Toast.makeText(context, "Markdown notes copied to clipboard", Toast.LENGTH_SHORT).show()
+}
+
+fun shareFormattedNote(
+    context: Context,
+    reel: ReelEntity,
+    takeaways: List<String>,
+    structured: StructuredContent?,
+    resources: List<ExtractedResource>
+) {
+    val noteText = buildFormattedNoteText(reel, takeaways, structured, resources, includeTranscript = false)
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, reel.title.ifBlank { "Savyor Note" })
+        putExtra(Intent.EXTRA_TEXT, noteText)
+    }
+    context.startActivity(Intent.createChooser(sendIntent, "Share note via"))
 }
 
 @Composable

@@ -7,6 +7,7 @@ import com.savyor.app.data.local.SavyorDatabase
 import com.savyor.app.data.local.entity.CategoryCorrectionEntity
 import com.savyor.app.data.local.entity.CategoryEntity
 import com.savyor.app.data.local.entity.ReelEntity
+import com.savyor.app.work.WorkManagerScheduler
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -36,6 +37,21 @@ class ReelDetailViewModel(
     fun updateUserNote(note: String) {
         viewModelScope.launch {
             reelDao.updateUserNote(shortcode, note)
+        }
+    }
+
+    fun toggleStarred() {
+        viewModelScope.launch {
+            val current = reel.value ?: return@launch
+            reelDao.updateStarred(shortcode, !current.isStarred)
+        }
+    }
+
+    fun reanalyzeReel(onEnqueued: () -> Unit) {
+        viewModelScope.launch {
+            val current = reel.value ?: return@launch
+            WorkManagerScheduler(getApplication()).enqueueReel(current.cleanUrl, forceReanalyze = true)
+            onEnqueued()
         }
     }
 

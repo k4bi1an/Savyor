@@ -79,6 +79,9 @@ data class GeminiReelAnalysis(
     @SerializedName("use_when")
     val useWhen: String = "",
 
+    @SerializedName("visual_memory")
+    val visualMemory: String = "",
+
     @SerializedName("source_language")
     val sourceLanguage: String = "English",
 

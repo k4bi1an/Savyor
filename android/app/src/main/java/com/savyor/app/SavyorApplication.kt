@@ -1,6 +1,9 @@
 package com.savyor.app
 
 import android.app.Application
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import com.savyor.app.data.local.EncryptedSettingsManager
 import com.savyor.app.data.local.SavyorDatabase
@@ -32,15 +35,27 @@ class SavyorApplication : Application() {
                 SnapshotCacheManager.enforceSnapshotLruCap(filesDir)
 
                 val settings = EncryptedSettingsManager(this@SavyorApplication)
-                if (!settings.isFirstRunDone && settings.autoUpdateYtDlp) {
+                val sevenDaysMs = 7L * 24L * 3600L * 1000L
+                val isUpdateStale = !settings.isFirstRunDone ||
+                    (System.currentTimeMillis() - settings.lastYtDlpUpdateCheckMs > sevenDaysMs)
+
+                if (settings.autoUpdateYtDlp && isUpdateStale && isOnUnmeteredWifi(this@SavyorApplication)) {
                     val engine = YtDlpEngine(this@SavyorApplication)
                     val (status, version) = engine.updateEngine()
-                    Log.i("SavyorApp", "First-run yt-dlp update complete: status=$status version=$version")
+                    Log.i("SavyorApp", "Smart Wi-Fi yt-dlp update complete: status=$status version=$version")
                     settings.isFirstRunDone = true
                 }
             } catch (e: Exception) {
                 Log.w("SavyorApp", "Background startup tasks non-fatal error: ${e.message}")
             }
         }
+    }
+
+    private fun isOnUnmeteredWifi(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     }
 }

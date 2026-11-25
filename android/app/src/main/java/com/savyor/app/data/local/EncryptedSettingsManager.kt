@@ -32,6 +32,10 @@ class EncryptedSettingsManager(private val context: Context) {
         private const val KEY_WIFI_ONLY = "wifi_only"
         private const val KEY_AUTO_UPDATE_YTDLP = "auto_update_ytdlp"
         private const val KEY_FIRST_RUN_DONE = "first_run_done"
+        private const val KEY_LAST_YTDLP_UPDATE_CHECK_MS = "last_ytdlp_update_check_ms"
+        private const val KEY_LAST_BACKUP_MS = "last_backup_ms"
+        private const val KEY_LIBRARY_VIEW_MODE = "library_view_mode"
+        private const val KEY_LIBRARY_SORT_ORDER = "library_sort_order"
     }
 
     var geminiApiKey: String
@@ -49,6 +53,22 @@ class EncryptedSettingsManager(private val context: Context) {
     var isFirstRunDone: Boolean
         get() = prefs.getBoolean(KEY_FIRST_RUN_DONE, false)
         set(value) = prefs.edit().putBoolean(KEY_FIRST_RUN_DONE, value).apply()
+
+    var lastYtDlpUpdateCheckMs: Long
+        get() = prefs.getLong(KEY_LAST_YTDLP_UPDATE_CHECK_MS, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_YTDLP_UPDATE_CHECK_MS, value).apply()
+
+    var lastBackupMs: Long
+        get() = prefs.getLong(KEY_LAST_BACKUP_MS, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_BACKUP_MS, value).apply()
+
+    var libraryViewMode: String
+        get() = prefs.getString(KEY_LIBRARY_VIEW_MODE, "GRID") ?: "GRID"
+        set(value) = prefs.edit().putString(KEY_LIBRARY_VIEW_MODE, value).apply()
+
+    var librarySortOrder: String
+        get() = prefs.getString(KEY_LIBRARY_SORT_ORDER, "NEWEST") ?: "NEWEST"
+        set(value) = prefs.edit().putString(KEY_LIBRARY_SORT_ORDER, value).apply()
 
     fun isApiKeyConfigured(): Boolean = geminiApiKey.isNotBlank()
 

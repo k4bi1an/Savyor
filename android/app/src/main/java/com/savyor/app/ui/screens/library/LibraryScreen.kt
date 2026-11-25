@@ -59,14 +59,21 @@ fun LibraryScreen(
     val reels by viewModel.reels.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val selectedStatus by viewModel.selectedStatus.collectAsState()
+    val starredOnly by viewModel.starredOnly.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val viewMode by viewModel.viewMode.collectAsState()
+    val sortOrder by viewModel.sortOrder.collectAsState()
 
     val haptic = LocalHapticFeedback.current
     var showAddDialog by remember { mutableStateOf(false) }
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var showStatusDropdown by remember { mutableStateOf(false) }
+    var showSortDropdown by remember { mutableStateOf(false) }
+
+    val categoryColorMap = remember(categories) {
+        categories.associate { it.name to it.colorHex }
+    }
 
     val searchFocusRequester = remember { FocusRequester() }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -121,7 +128,7 @@ fun LibraryScreen(
                                     ) {
                                         if (searchQuery.isEmpty()) {
                                             Text(
-                                                text = "Search titles, notes, tags...",
+                                                text = "Search notes, transcripts, or visuals...",
                                                 fontFamily = InterFontFamily,
                                                 fontSize = 13.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -264,7 +271,7 @@ fun LibraryScreen(
                 }
             }
 
-            // Compact Sub-bar: Status Pill on Left; Count + Grid/List Toggle on Right
+            // Compact Sub-bar: Status Pill + Starred Filter on Left; Sort + Count + 3-Way Toggle on Right
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -272,85 +279,183 @@ fun LibraryScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Status Dropdown Pill
-                Box {
-                    val displayStatus = if (selectedStatus == "All") {
-                        "Status: All"
-                    } else {
-                        selectedStatus.lowercase().replaceFirstChar { it.uppercase() }
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable { showStatusDropdown = true }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Status Dropdown Pill
+                    Box {
+                        val displayStatus = if (selectedStatus == "All") {
+                            "Status: All"
+                        } else {
+                            selectedStatus.lowercase().replaceFirstChar { it.uppercase() }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { showStatusDropdown = true }
                         ) {
-                            Text(
-                                text = displayStatus,
-                                fontFamily = InterFontFamily,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Icon(
-                                Icons.Default.ArrowDropDown,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = displayStatus,
+                                    fontFamily = InterFontFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = showStatusDropdown,
+                            onDismissRequest = { showStatusDropdown = false }
+                        ) {
+                            listOf("All", "UNREAD", "REVIEWED", "TRIED", "ARCHIVED").forEach { st ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = if (st == "All") "All Statuses" else st.lowercase().replaceFirstChar { it.uppercase() },
+                                            fontFamily = InterFontFamily,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (selectedStatus == st) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (selectedStatus == st) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.selectStatus(st)
+                                        showStatusDropdown = false
+                                    }
+                                )
+                            }
                         }
                     }
 
-                    DropdownMenu(
-                        expanded = showStatusDropdown,
-                        onDismissRequest = { showStatusDropdown = false }
+                    // 1-Tap Starred Filter Pill
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (starredOnly) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.toggleStarredOnly()
+                            }
                     ) {
-                        listOf("All", "UNREAD", "REVIEWED", "TRIED", "ARCHIVED").forEach { st ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = if (st == "All") "All Statuses" else st.lowercase().replaceFirstChar { it.uppercase() },
-                                        fontFamily = InterFontFamily,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (selectedStatus == st) FontWeight.SemiBold else FontWeight.Normal,
-                                        color = if (selectedStatus == st) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                    )
-                                },
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.selectStatus(st)
-                                    showStatusDropdown = false
-                                }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (starredOnly) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                                contentDescription = "Filter Starred",
+                                tint = if (starredOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "Starred",
+                                fontFamily = InterFontFamily,
+                                fontSize = 12.sp,
+                                fontWeight = if (starredOnly) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (starredOnly) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
                 }
 
-                // Right: Quiet Reel Count + Grid/List Toggle
+                // Right: Sort Selector + Count + 3-Way Layout Toggle (Grid -> List -> Compact)
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color.Transparent,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { showSortDropdown = true }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = sortOrder.label,
+                                    fontFamily = InterFontFamily,
+                                    fontSize = 11.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Icon(
+                                    Icons.Default.ArrowDropDown,
+                                    contentDescription = "Sort Order",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = showSortDropdown,
+                            onDismissRequest = { showSortDropdown = false }
+                        ) {
+                            SortOrder.entries.forEach { order ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = order.label,
+                                            fontFamily = InterFontFamily,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (sortOrder == order) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (sortOrder == order) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.setSortOrder(order)
+                                        showSortDropdown = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     Text(
-                        text = "${reels.size} ${if (reels.size == 1) "reel" else "reels"}",
+                        text = "· ${reels.size}",
                         fontFamily = InterFontFamily,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     IconButton(
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             viewModel.toggleViewMode()
                         },
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(30.dp)
                     ) {
+                        val viewIcon = when (viewMode) {
+                            ViewMode.GRID -> Icons.Outlined.GridView
+                            ViewMode.LIST -> Icons.AutoMirrored.Outlined.ViewList
+                            ViewMode.COMPACT -> Icons.Outlined.ViewHeadline
+                        }
                         Icon(
-                            imageVector = if (viewMode == ViewMode.GRID) Icons.AutoMirrored.Outlined.ViewList else Icons.Outlined.GridView,
-                            contentDescription = "Toggle View",
+                            imageVector = viewIcon,
+                            contentDescription = "Cycle View (${viewMode.name})",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
@@ -367,9 +472,20 @@ fun LibraryScreen(
                 ActiveJobsSection(activeJobs)
             }
 
-            // Main Content: Animated Grid <-> List transition
+            // Main Content: Animated Grid <-> List <-> Compact transition
+            val hasActiveFilters = searchQuery.isNotBlank() || starredOnly || selectedCategory != "All" || selectedStatus != "All"
             if (reels.isEmpty()) {
-                EmptyLibraryView(onAddClick = { showAddDialog = true })
+                if (hasActiveFilters) {
+                    EmptySearchView(
+                        query = searchQuery,
+                        onClearSearch = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            viewModel.clearAllFilters()
+                        }
+                    )
+                } else {
+                    EmptyLibraryView(onAddClick = { showAddDialog = true })
+                }
             } else {
                 AnimatedContent(
                     targetState = viewMode,
@@ -378,47 +494,76 @@ fun LibraryScreen(
                     },
                     label = "view_mode_transition"
                 ) { mode ->
-                    if (mode == ViewMode.GRID) {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(20.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(reels, key = { it.id }) { reel ->
-                                Box(
-                                    modifier = Modifier.animateItemPlacement(
-                                        spring(stiffness = Spring.StiffnessMediumLow)
-                                    )
-                                ) {
-                                    ReelGridCard(
-                                        reel = reel,
-                                        onClick = { onNavigateToDetail(reel.shortcode) }
-                                    )
+                    when (mode) {
+                        ViewMode.GRID -> {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(2),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(20.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(reels, key = { it.id }) { reel ->
+                                    Box(
+                                        modifier = Modifier.animateItemPlacement(
+                                            spring(stiffness = Spring.StiffnessMediumLow)
+                                        )
+                                    ) {
+                                        ReelGridCard(
+                                            reel = reel,
+                                            onClick = { onNavigateToDetail(reel.shortcode) }
+                                        )
+                                    }
                                 }
                             }
                         }
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            itemsIndexed(reels, key = { _, item -> item.id }) { index, reel ->
-                                Column(
-                                    modifier = Modifier.animateItemPlacement(
-                                        spring(stiffness = Spring.StiffnessMediumLow)
-                                    )
-                                ) {
-                                    ReelListRow(
-                                        reel = reel,
-                                        onClick = { onNavigateToDetail(reel.shortcode) }
-                                    )
-                                    if (index < reels.lastIndex) {
-                                        HorizontalDivider(
-                                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-                                            thickness = 0.5.dp
+                        ViewMode.LIST -> {
+                            LazyColumn(
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                itemsIndexed(reels, key = { _, item -> item.id }) { index, reel ->
+                                    Column(
+                                        modifier = Modifier.animateItemPlacement(
+                                            spring(stiffness = Spring.StiffnessMediumLow)
                                         )
+                                    ) {
+                                        ReelListRow(
+                                            reel = reel,
+                                            onClick = { onNavigateToDetail(reel.shortcode) }
+                                        )
+                                        if (index < reels.lastIndex) {
+                                            HorizontalDivider(
+                                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+                                                thickness = 0.5.dp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ViewMode.COMPACT -> {
+                            LazyColumn(
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                itemsIndexed(reels, key = { _, item -> item.id }) { index, reel ->
+                                    Column(
+                                        modifier = Modifier.animateItemPlacement(
+                                            spring(stiffness = Spring.StiffnessMediumLow)
+                                        )
+                                    ) {
+                                        ReelCompactRow(
+                                            reel = reel,
+                                            categoryColorHex = categoryColorMap[reel.category] ?: "#2F5D50",
+                                            onClick = { onNavigateToDetail(reel.shortcode) }
+                                        )
+                                        if (index < reels.lastIndex) {
+                                            HorizontalDivider(
+                                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                                                thickness = 0.5.dp
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -672,6 +817,26 @@ fun ReelGridCard(reel: ReelEntity, onClick: () -> Unit) {
                 }
             }
 
+            if (reel.isStarred) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0x99111312),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .size(24.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Filled.Star,
+                            contentDescription = "Starred",
+                            tint = Color(0xFFE7C77A),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+
             StatusBadge(
                 status = reel.status,
                 isFrosted = true,
@@ -789,15 +954,28 @@ fun ReelListRow(reel: ReelEntity, onClick: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 val creatorText = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}"
-                Text(
-                    text = "$creatorText · ${reel.category}",
-                    fontFamily = InterFontFamily,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
-                )
+                ) {
+                    if (reel.isStarred) {
+                        Icon(
+                            imageVector = Icons.Filled.Star,
+                            contentDescription = "Starred",
+                            tint = Color(0xFFD4A843),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Text(
+                        text = "$creatorText · ${reel.category}",
+                        fontFamily = InterFontFamily,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 StatusBadge(status = reel.status)
             }
@@ -860,6 +1038,136 @@ fun EmptyLibraryView(onAddClick: () -> Unit) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Add Reel", fontFamily = InterFontFamily, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+@Composable
+fun ReelCompactRow(
+    reel: ReelEntity,
+    categoryColorHex: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .springPressClickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!reel.thumbnailPath.isNullOrBlank() && File(reel.thumbnailPath).exists()) {
+                val context = LocalContext.current
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(File(reel.thumbnailPath))
+                        .crossfade(true)
+                        .size(160, 160)
+                        .build(),
+                    contentDescription = reel.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.PlayCircleOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(parseCategoryColor(categoryColorHex))
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Text(
+            text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
+            fontFamily = NewsreaderFontFamily,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f)
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        if (reel.isStarred) {
+            Icon(
+                imageVector = Icons.Filled.Star,
+                contentDescription = "Starred",
+                tint = Color(0xFFD4A843),
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+
+        StatusBadge(status = reel.status)
+    }
+}
+
+@Composable
+fun EmptySearchView(
+    query: String,
+    onClearSearch: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                modifier = Modifier.size(44.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "No matching reels",
+                fontFamily = NewsreaderFontFamily,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = if (query.isNotBlank()) "No notes, transcripts, or visual cues matched \"$query\"." else "No reels match the active filters.",
+                fontFamily = InterFontFamily,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = onClearSearch,
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline)
+            ) {
+                Text("Clear search", fontFamily = InterFontFamily, fontSize = 13.sp)
             }
         }
     }

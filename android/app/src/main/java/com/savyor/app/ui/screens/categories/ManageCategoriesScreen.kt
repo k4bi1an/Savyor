@@ -201,7 +201,7 @@ fun ManageCategoriesScreen(
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "${item.reelCount} saved reels",
+                                text = "${item.reelCount} saved ${if (item.reelCount == 1) "reel" else "reels"}",
                                 fontFamily = InterFontFamily,
                                 fontSize = 11.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

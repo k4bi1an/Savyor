@@ -7,6 +7,8 @@ def generate_pdf():
 
     # Ordered list of screenshots to include
     images_to_include = [
+        "launcher_icon.png",
+        "library_compact_light.png",
         "manage_categories_light.png",
         "manage_categories_dark.png",
         "detail_my_note_light.png",

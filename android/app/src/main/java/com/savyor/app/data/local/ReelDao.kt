@@ -49,6 +49,7 @@ interface ReelDao {
            OR tags LIKE '%' || :query || '%'
            OR structured_content LIKE '%' || :query || '%'
            OR user_note LIKE '%' || :query || '%'
+           OR visual_memory LIKE '%' || :query || '%'
         ORDER BY created_at DESC
         """
     )
@@ -68,6 +69,9 @@ interface ReelDao {
 
     @Query("UPDATE reels SET user_note = :userNote, updated_at = :updatedAt WHERE shortcode = :shortcode")
     suspend fun updateUserNote(shortcode: String, userNote: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE reels SET is_starred = :isStarred, updated_at = :updatedAt WHERE shortcode = :shortcode")
+    suspend fun updateStarred(shortcode: String, isStarred: Boolean, updatedAt: Long = System.currentTimeMillis())
 
     @Query("UPDATE reels SET category = :toCategory, updated_at = :updatedAt WHERE category = :fromCategory")
     suspend fun reassignCategory(fromCategory: String, toCategory: String, updatedAt: Long = System.currentTimeMillis())
