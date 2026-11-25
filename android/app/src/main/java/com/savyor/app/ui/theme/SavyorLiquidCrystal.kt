@@ -4,6 +4,10 @@ import android.os.Build
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
@@ -18,6 +22,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 
@@ -170,6 +175,34 @@ fun Modifier.savyorCardBorder(shape: Shape): Modifier = composed {
         brush = Brush.verticalGradient(listOf(colors.cardRimTop, colors.cardRimBottom)),
         shape = shape
     )
+}
+
+/**
+ * Top status-bar scrim: 100% opaque bgCanvas across the status bar region,
+ * fading smoothly to transparent over the next 28.dp below it so scrolled
+ * content never collides with system clock or status icons.
+ */
+@Composable
+fun TopStatusBarScrim(statusBarTop: Dp) {
+    val colors = LocalSavyorColors.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(statusBarTop)
+                .background(colors.bgCanvas)
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(colors.bgCanvas, Color.Transparent)
+                    )
+                )
+        )
+    }
 }
 
 /**

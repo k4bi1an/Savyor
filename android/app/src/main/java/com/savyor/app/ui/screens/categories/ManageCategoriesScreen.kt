@@ -200,17 +200,8 @@ fun ManageCategoriesScreen(
             }
         }
 
-        // Top Status-Bar Scrim
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(statusBarTop + 20.dp)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(colors.bgCanvas.copy(alpha = 0.85f), Color.Transparent)
-                    )
-                )
-        )
+        // Top Status-Bar Fade Scrim
+        TopStatusBarScrim(statusBarTop = statusBarTop)
 
         // Floating Liquid Crystal Header Capsule
         val capsuleShape = RoundedCornerShape(29.dp)

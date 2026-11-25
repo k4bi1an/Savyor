@@ -247,10 +247,10 @@ fun ReelDetailScreen(
                         }
 
                         Text(
-                            text = " Â· ",
+                            text = " \u00B7 ",
                             fontFamily = SavyorSansFamily,
                             fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = colors.inkMuted
                         )
 
                         // Tappable Muted Status Badge
@@ -282,10 +282,10 @@ fun ReelDetailScreen(
 
                         if (currentReel.sourceLanguage.isNotBlank() && !currentReel.sourceLanguage.equals("English", ignoreCase = true)) {
                             Text(
-                                text = " Â· ${currentReel.sourceLanguage} â†’ English",
+                                text = " \u00B7 ${currentReel.sourceLanguage} \u2192 English",
                                 fontFamily = SavyorSansFamily,
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = colors.inkMuted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -493,17 +493,8 @@ fun ReelDetailScreen(
             }
         }
 
-        // Top Status-Bar Scrim
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(statusBarTop + 20.dp)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(colors.bgCanvas.copy(alpha = 0.85f), Color.Transparent)
-                    )
-                )
-        )
+        // Top Status-Bar Fade Scrim
+        TopStatusBarScrim(statusBarTop = statusBarTop)
 
         // Floating Liquid Crystal Header Capsule
         val capsuleShape = RoundedCornerShape(29.dp)
@@ -640,65 +631,84 @@ fun ReelDetailScreen(
             }
         }
 
-        // Sticky Floating Liquid Crystal Editing Note Bar
+        // Sticky Floating Liquid Crystal Editing Note Bar with 24.dp bottom-to-top fade scrim
         AnimatedVisibility(
             visible = isEditingMyNote,
             enter = slideInVertically { it } + fadeIn(tween(180)),
             exit = slideOutVertically { it } + fadeOut(tween(150)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .fillMaxWidth()
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             val editBarShape = RoundedCornerShape(26.dp)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .savyorLiquidCrystal(tier = CrystalTier.CHROME, shape = editBarShape)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Editing Note",
-                    fontFamily = SavyorSansFamily,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.inkSecondary,
-                    modifier = Modifier.padding(start = 6.dp)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(24.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, colors.bgCanvas)
+                            )
+                        )
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(colors.bgCanvas)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    TextButton(
-                        onClick = {
-                            myNoteDraft = currentReel.userNote
-                            isEditingMyNote = false
-                        }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .savyorLiquidCrystal(tier = CrystalTier.CHROME, shape = editBarShape)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Cancel",
+                            text = "Editing Note",
                             fontFamily = SavyorSansFamily,
                             fontSize = 13.sp,
-                            color = colors.inkSecondary
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.inkSecondary,
+                            modifier = Modifier.padding(start = 6.dp)
                         )
-                    }
-                    Button(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.updateUserNote(myNoteDraft.trim())
-                            isEditingMyNote = false
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.ctaBg,
-                            contentColor = colors.ctaFg
-                        ),
-                        shape = RoundedCornerShape(18.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text("Save Note", fontFamily = SavyorSansFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    myNoteDraft = currentReel.userNote
+                                    isEditingMyNote = false
+                                }
+                            ) {
+                                Text(
+                                    "Cancel",
+                                    fontFamily = SavyorSansFamily,
+                                    fontSize = 13.sp,
+                                    color = colors.inkSecondary
+                                )
+                            }
+                            Button(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.updateUserNote(myNoteDraft.trim())
+                                    isEditingMyNote = false
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.ctaBg,
+                                    contentColor = colors.ctaFg
+                                ),
+                                shape = RoundedCornerShape(18.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                Text("Save Note", fontFamily = SavyorSansFamily, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
             }
@@ -1108,7 +1118,7 @@ private fun NotesTabContent(
                             verticalAlignment = Alignment.Top
                         ) {
                             Text(
-                                text = "â€¢",
+                                text = "\u2022",
                                 fontFamily = SavyorSansFamily,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
@@ -1379,7 +1389,7 @@ fun StructuredContentView(content: StructuredContent) {
                     modifier = Modifier.padding(vertical = 3.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    Text("â€¢ ", fontFamily = SavyorSansFamily, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("\u2022 ", fontFamily = SavyorSansFamily, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Text(prereq, fontFamily = SavyorSansFamily, fontSize = 15.sp, lineHeight = 23.sp)
                 }
             }
@@ -1681,7 +1691,7 @@ fun buildFormattedNoteText(
         if (resources.isNotEmpty()) {
             appendLine("## Links & Resources")
             resources.forEach { res ->
-                val urlPart = if (res.url.isNotBlank()) " â€” ${res.url}" else ""
+                val urlPart = if (res.url.isNotBlank()) " \u2014 ${res.url}" else ""
                 appendLine("- **${res.name}**$urlPart: ${res.description}")
             }
             appendLine()

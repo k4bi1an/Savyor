@@ -89,9 +89,9 @@ val ObsidianSavyorColors = SavyorColors(
     borderFocus = Color(0xFF71717A),
     ctaBg = Color(0xFFF4F4F5),
     ctaFg = Color(0xFF09090B),
-    // CHROME (fallback opaque-calibrated frosted obsidian for Compose < 1.7)
-    chromeGradTop = Color(0xE816161C),
-    chromeGradBottom = Color(0xF00F0F14),
+    // CHROME (high-opacity frosted obsidian so scrolled text never bleeds through)
+    chromeGradTop = Color(0xF214141A),
+    chromeGradBottom = Color(0xF60F0F14),
     chromeDomeTop = Color(0x24FFFFFF),
     chromeDomeMid = Color(0x08E0F2FE),
     chromeRim0 = Color(0x7AFFFFFF),
@@ -146,9 +146,9 @@ val PorcelainSavyorColors = SavyorColors(
     borderFocus = Color(0xFF71717A),
     ctaBg = Color(0xFF111113),
     ctaFg = Color(0xFFFAF9F6),
-    // CHROME (fallback opaque-calibrated frosted porcelain for Compose < 1.7)
-    chromeGradTop = Color(0xEBFFFFFF),
-    chromeGradBottom = Color(0xF2F5F4EF),
+    // CHROME (high-opacity frosted porcelain so scrolled text never bleeds through)
+    chromeGradTop = Color(0xF5FFFFFF),
+    chromeGradBottom = Color(0xF8F5F4EF),
     chromeDomeTop = Color(0x99FFFFFF),
     chromeDomeMid = Color(0x28FFFFFF),
     chromeRim0 = Color(0xFFFFFFFF),

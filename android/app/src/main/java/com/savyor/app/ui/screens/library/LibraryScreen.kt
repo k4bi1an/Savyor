@@ -321,17 +321,8 @@ fun LibraryScreen(
             }
         }
 
-        // 2. Subtle Top Status-Bar Scrim
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(statusBarTop + 20.dp)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(colors.bgCanvas.copy(alpha = 0.85f), Color.Transparent)
-                    )
-                )
-        )
+        // 2. Top Status-Bar Fade Scrim
+        TopStatusBarScrim(statusBarTop = statusBarTop)
 
         // 3. Floating Liquid Crystal Header Capsule + Split Filter Dock
         Column(
