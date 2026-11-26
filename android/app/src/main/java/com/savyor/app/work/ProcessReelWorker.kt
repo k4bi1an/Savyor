@@ -124,10 +124,11 @@ class ProcessReelWorker(
             // 7. Extract thumbnail and key moment frames
             Log.i(TAG, "Extracting WebP frames via MediaMetadataRetriever...")
             val frameStartMs = SystemClock.elapsedRealtime()
+            val boundedMoments = GeminiFilesClient.filterValidKeyMoments(analysis.keyMoments, videoDurationSec)
             val framesResult = frameExtractor.extractFrames(
                 videoFile = downloadedVideoFile,
                 shortcode = shortcode,
-                keyMoments = analysis.keyMoments
+                keyMoments = boundedMoments
             )
             val frameDurationMs = SystemClock.elapsedRealtime() - frameStartMs
             SnapshotCacheManager.enforceSnapshotLruCap(applicationContext.filesDir)

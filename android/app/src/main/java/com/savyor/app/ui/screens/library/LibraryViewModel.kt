@@ -278,6 +278,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
                 _refreshTrigger.value = System.currentTimeMillis()
+                kotlinx.coroutines.delay(350L)
             } finally {
                 _isRefreshing.value = false
             }

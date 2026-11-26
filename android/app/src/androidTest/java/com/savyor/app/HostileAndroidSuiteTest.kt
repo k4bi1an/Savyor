@@ -181,6 +181,6 @@ class HostileAndroidSuiteTest {
             }
         }
         composeRule.onNodeWithText("Your library is calm").assertIsDisplayed()
-        composeRule.onNodeWithText("Add Reel").assertIsDisplayed()
+        composeRule.onNodeWithText("Save Reel").assertIsDisplayed()
     }
 }

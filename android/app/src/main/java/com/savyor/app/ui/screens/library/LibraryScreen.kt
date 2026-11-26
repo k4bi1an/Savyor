@@ -195,9 +195,13 @@ fun LibraryScreen(
             viewModel.refreshLibrary()
         }
     }
-    LaunchedEffect(isRefreshing) {
-        if (!isRefreshing && pullRefreshState.isRefreshing) {
-            pullRefreshState.endRefresh()
+    LaunchedEffect(pullRefreshState.isRefreshing, isRefreshing) {
+        if (pullRefreshState.isRefreshing && !isRefreshing) {
+            // Ensure spinner settles once refresh completes
+            kotlinx.coroutines.delay(50L)
+            if (!viewModel.isRefreshing.value) {
+                pullRefreshState.endRefresh()
+            }
         }
     }
 
@@ -566,7 +570,7 @@ fun LibraryScreen(
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     showAddTopicDialog = true
                                 }
-                                .padding(horizontal = 11.dp),
+                                .padding(horizontal = 10.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {

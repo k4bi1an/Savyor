@@ -152,7 +152,7 @@ def main():
         f.write(full_sql)
 
     subprocess.run([ADB, "push", "seed_temp.sql", "/data/local/tmp/seed.sql"], check=True)
-    subprocess.run([ADB, "shell", "su", "0", "sh", "-c", "cat /data/local/tmp/seed.sql | sqlite3 /data/data/com.savyor.app/databases/savyor.db"], check=True)
+    subprocess.run([ADB, "shell", "su 0 sqlite3 /data/data/com.savyor.app/databases/savyor.db < /data/local/tmp/seed.sql"], check=True)
     print("Database seeded successfully with reels and custom categories.")
 
 if __name__ == "__main__":

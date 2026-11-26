@@ -80,6 +80,15 @@ class GeminiFilesClient(
                 else -> 0
             }
         }
+
+        fun filterValidKeyMoments(
+            moments: List<KeyMomentAnalysis>,
+            durationSec: Int?
+        ): List<KeyMomentAnalysis> {
+            return moments.filter { m ->
+                m.timestampSec >= 0 && (durationSec == null || durationSec <= 0 || m.timestampSec <= durationSec)
+            }
+        }
     }
 
     override suspend fun testConnection(apiKey: String): Result<String> = withContext(Dispatchers.IO) {

@@ -83,9 +83,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        SavyorThemeState.setThemeMode(
-            SavyorThemeMode.fromString(EncryptedSettingsManager(this).themeMode)
-        )
+        val savedThemeMode = SavyorThemeMode.fromString(EncryptedSettingsManager(this).themeMode)
+        SavyorThemeState.setThemeMode(savedThemeMode)
+        val isDark = when (savedThemeMode) {
+            SavyorThemeMode.OBSIDIAN -> true
+            SavyorThemeMode.PORCELAIN -> false
+            SavyorThemeMode.SYSTEM -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(if (isDark) 0xFF0B0B0D.toInt() else 0xFFF6F6F8.toInt()))
         targetRouteState.value = intent.getStringExtra("navigate_to")
 
         setContent {
@@ -317,7 +322,7 @@ private fun SavyorLaunchRevealOverlay(onFinished: () -> Unit) {
                                 brush = Brush.linearGradient(
                                     colors = listOf(
                                         Color.Transparent,
-                                        Color.White.copy(alpha = 0.35f),
+                                        colors.inkPrimary.copy(alpha = 0.35f),
                                         Color.Transparent
                                     ),
                                     start = Offset(startX - size.width * 0.4f, 0f),
