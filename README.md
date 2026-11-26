@@ -2,7 +2,7 @@
 
 **Turn Instagram Reels into searchable, permanent notes with 0 MB of video stored.**
 
-Savyor is a native Android app that takes any Instagram Reel you share, extracts the key substance—summary, verbatim code and commands, recipes, steps, links, English and native transcripts, and key-moment snapshots—and immediately deletes the temporary video file.
+Savyor is a native Android app that takes any Instagram Reel you share, extracts the key substance, summary, verbatim code and commands, recipes, steps, links, English and native transcripts, and key-moment snapshots and immediately deletes the temporary video file.
 
 ## Screenshots
 
