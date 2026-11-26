@@ -14,10 +14,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,9 +29,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.savyor.app.ui.screens.library.CrystalIconWell
@@ -59,9 +67,13 @@ fun SettingsScreen(
     val lastBackupMs by viewModel.lastBackupMs.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
     val geminiModel by viewModel.geminiModel.collectAsState()
+    val availableAppUpdate by viewModel.availableAppUpdate.collectAsState()
+    val appUpdateStatus by viewModel.appUpdateStatus.collectAsState()
+    val appUpdateDownloadProgress by viewModel.appUpdateDownloadProgress.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     var showApiKeyDialog by remember { mutableStateOf(false) }
+    var showAppUpdateDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.backupRestoreMessage.collect { message ->
@@ -284,7 +296,7 @@ fun SettingsScreen(
                                         color = if (selected) colors.inkPrimary else colors.inkSecondary
                                     )
                                     Text(
-                                        text = if (option == com.savyor.app.data.remote.GeminiModelOption.AUTO) "4-model chain" else option.modeKey,
+                                        text = if (option == com.savyor.app.data.remote.GeminiModelOption.AUTO) "Auto fallback" else option.modeKey,
                                         fontFamily = SavyorMonoFamily,
                                         fontSize = 10.5.sp,
                                         color = if (selected) colors.inkSecondary else colors.inkMuted
@@ -317,15 +329,26 @@ fun SettingsScreen(
                                 Text("Test Connection", fontFamily = SavyorSansFamily, fontSize = 12.sp, color = colors.inkPrimary)
                             }
 
-                            if (!connectionStatus.isNullOrBlank()) {
-                                val isSuccess = connectionStatus!!.startsWith("Connected")
-                                Text(
-                                    text = if (isSuccess) "Connected" else "Failed",
-                                    fontFamily = SavyorSansFamily,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (isSuccess) colors.triedFg else colors.errorFg
-                                )
+                            when {
+                                isTestingConnection -> {
+                                    Text(
+                                        text = "Testing...",
+                                        fontFamily = SavyorSansFamily,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colors.inkSecondary
+                                    )
+                                }
+                                !connectionStatus.isNullOrBlank() -> {
+                                    val isSuccess = connectionStatus!!.startsWith("Connected")
+                                    Text(
+                                        text = if (isSuccess) "Connected" else "Failed",
+                                        fontFamily = SavyorSansFamily,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isSuccess) colors.triedFg else colors.errorFg
+                                    )
+                                }
                             }
                         }
 
@@ -471,6 +494,90 @@ fun SettingsScreen(
                                 Text("Update", fontFamily = SavyorSansFamily, fontSize = 12.sp, color = colors.inkPrimary)
                             }
                         }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 12.dp),
+                            color = colors.borderSubtle,
+                            thickness = 1.dp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(
+                                    "Savyor App Version",
+                                    fontFamily = SavyorSansFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = colors.inkPrimary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "v${com.savyor.app.BuildConfig.VERSION_NAME}",
+                                        fontFamily = SavyorMonoFamily,
+                                        fontSize = 12.sp,
+                                        color = colors.inkSecondary
+                                    )
+                                    val (appBadgeText, appBadgeFg, appBadgeBg) = when (appUpdateStatus) {
+                                        "UP_TO_DATE" -> Triple("Up to date", colors.triedFg, colors.triedBg)
+                                        "UPDATE_AVAILABLE" -> Triple(
+                                            "v${availableAppUpdate?.versionName ?: ""} available".trim(),
+                                            colors.unreadFg,
+                                            colors.unreadBg
+                                        )
+                                        "CHECKING" -> Triple("Checking...", colors.unreadFg, colors.unreadBg)
+                                        "DOWNLOADING" -> Triple("Downloading $appUpdateDownloadProgress%", colors.unreadFg, colors.unreadBg)
+                                        "READY_TO_INSTALL" -> Triple("Ready to install", colors.triedFg, colors.triedBg)
+                                        "ERROR" -> Triple("Check failed", colors.errorFg, colors.errorBg)
+                                        else -> Triple("GitHub OTA", colors.inkMuted, colors.surfaceRecessed)
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = appBadgeBg
+                                    ) {
+                                        Text(
+                                            text = appBadgeText,
+                                            fontFamily = SavyorMonoFamily,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = appBadgeFg,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            val hasUpdate = availableAppUpdate != null
+                            OutlinedButton(
+                                onClick = {
+                                    if (hasUpdate) {
+                                        showAppUpdateDialog = true
+                                    } else {
+                                        viewModel.checkForAppUpdate(force = true)
+                                    }
+                                },
+                                enabled = appUpdateStatus != "CHECKING",
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, if (hasUpdate) colors.unreadFg.copy(alpha = 0.5f) else colors.borderSubtle)
+                            ) {
+                                if (appUpdateStatus == "CHECKING" || appUpdateStatus == "DOWNLOADING") {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.inkPrimary)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                val btnLabel = when (appUpdateStatus) {
+                                    "READY_TO_INSTALL" -> "Install"
+                                    "DOWNLOADING" -> "$appUpdateDownloadProgress%"
+                                    else -> if (hasUpdate) "Update" else "Check"
+                                }
+                                Text(btnLabel, fontFamily = SavyorSansFamily, fontSize = 12.sp, color = colors.inkPrimary)
+                            }
+                        }
                     }
                 }
             }
@@ -521,7 +628,7 @@ fun SettingsScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    "Add, rename, and recolor topic tags",
+                                    "Add, rename, and reorder topic tags",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = colors.inkSecondary
                                 )
@@ -833,7 +940,22 @@ fun SettingsScreen(
 
     // Set API Key Dialog
     if (showApiKeyDialog) {
-        var keyInput by remember { mutableStateOf("") }
+        val clipboardManager = LocalClipboardManager.current
+        val initialKey = remember(showApiKeyDialog) { viewModel.getEditableApiKey() }
+        var keyInput by remember(showApiKeyDialog) { mutableStateOf(initialKey) }
+        var showKeyPlaintext by remember(showApiKeyDialog) { mutableStateOf(false) }
+        var keyError by remember(showApiKeyDialog) { mutableStateOf<String?>(null) }
+
+        fun submitKey() {
+            val cleaned = keyInput.trim().replace(Regex("\\s+"), "")
+            if (cleaned.length < 10) {
+                keyError = "Enter a valid Gemini API key"
+                return
+            }
+            viewModel.saveApiKey(cleaned)
+            showApiKeyDialog = false
+        }
+
         AlertDialog(
             onDismissRequest = { showApiKeyDialog = false },
             containerColor = colors.surfaceElevated,
@@ -854,34 +976,194 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
                         value = keyInput,
-                        onValueChange = { keyInput = it },
-                        placeholder = { Text("AIzaSy...", fontSize = 13.sp) },
+                        onValueChange = {
+                            keyInput = it.replace("\n", "").replace("\r", "")
+                            keyError = null
+                        },
+                        placeholder = { Text("Paste Gemini API key...", fontSize = 13.sp) },
                         singleLine = true,
+                        isError = keyError != null,
+                        visualTransformation = if (showKeyPlaintext) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Ascii,
+                            autoCorrect = false,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { submitKey() }),
+                        trailingIcon = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (keyInput.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { showKeyPlaintext = !showKeyPlaintext },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (showKeyPlaintext) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                            contentDescription = if (showKeyPlaintext) "Hide key" else "Show key",
+                                            tint = colors.inkSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            keyInput = ""
+                                            keyError = null
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Clear,
+                                            contentDescription = "Clear input",
+                                            tint = colors.inkSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                } else {
+                                    IconButton(
+                                        onClick = {
+                                            val clip = clipboardManager.getText()?.text?.trim()?.replace(Regex("\\s+"), "")
+                                            if (!clip.isNullOrBlank()) {
+                                                keyInput = clip
+                                                keyError = null
+                                            }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.ContentPaste,
+                                            contentDescription = "Paste API key",
+                                            tint = colors.inkSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (keyError != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = keyError!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.errorFg
+                        )
+                    }
+                    if (initialKey.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        TextButton(
+                            onClick = {
+                                viewModel.clearApiKey()
+                                showApiKeyDialog = false
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                "Remove saved key",
+                                fontFamily = SavyorSansFamily,
+                                fontSize = 12.sp,
+                                color = colors.errorFg
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
                 Button(
-                    onClick = {
-                        if (keyInput.isNotBlank()) {
-                            viewModel.saveApiKey(keyInput)
-                            showApiKeyDialog = false
-                        }
-                    },
+                    onClick = { submitKey() },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.ctaBg,
                         contentColor = colors.ctaFg
                     ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Save", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold)
+                    Text("Save & Test", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showApiKeyDialog = false }) {
                     Text("Cancel", fontFamily = SavyorSansFamily, color = colors.inkSecondary)
+                }
+            }
+        )
+    }
+
+    // OTA App Update Dialog
+    if (showAppUpdateDialog && availableAppUpdate != null) {
+        val info = availableAppUpdate!!
+        val isDownloading = appUpdateStatus == "DOWNLOADING"
+        val isReady = appUpdateStatus == "READY_TO_INSTALL"
+        val mb = "%.1f".format(info.asset.sizeBytes.toDouble() / (1024 * 1024))
+        AlertDialog(
+            onDismissRequest = { if (!isDownloading) showAppUpdateDialog = false },
+            containerColor = colors.surfaceElevated,
+            title = {
+                Text(
+                    "Savyor v${info.versionName} Available",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.inkPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Package: ${info.asset.name} ($mb MB)",
+                        fontFamily = SavyorMonoFamily,
+                        fontSize = 11.sp,
+                        color = colors.inkMuted
+                    )
+                    if (info.releaseNotes.isNotBlank()) {
+                        Text(
+                            text = info.releaseNotes,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.inkSecondary,
+                            maxLines = 8
+                        )
+                    }
+                    if (isDownloading) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = { (appUpdateDownloadProgress / 100f).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
+                            color = colors.unreadFg,
+                            trackColor = colors.borderSubtle
+                        )
+                        Text(
+                            "Downloading update... $appUpdateDownloadProgress%",
+                            fontFamily = SavyorSansFamily,
+                            fontSize = 11.5.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.downloadAndInstallAppUpdate() },
+                    enabled = !isDownloading,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.ctaBg,
+                        contentColor = colors.ctaFg
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        when {
+                            isDownloading -> "Downloading..."
+                            isReady -> "Install Update"
+                            else -> "Download & Install"
+                        },
+                        fontFamily = SavyorSansFamily,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            },
+            dismissButton = {
+                if (!isDownloading) {
+                    TextButton(onClick = { showAppUpdateDialog = false }) {
+                        Text("Later", fontFamily = SavyorSansFamily, color = colors.inkSecondary)
+                    }
                 }
             }
         )

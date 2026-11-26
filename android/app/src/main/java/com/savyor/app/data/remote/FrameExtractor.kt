@@ -30,6 +30,13 @@ interface IFrameExtractor {
         shortcode: String,
         keyMoments: List<KeyMomentAnalysis>
     ): ExtractedFramesResult
+
+    suspend fun extractFrames(
+        videoFile: File,
+        shortcode: String,
+        keyMoments: List<KeyMomentAnalysis>,
+        onProgress: (Int, Int) -> Unit
+    ): ExtractedFramesResult = extractFrames(videoFile, shortcode, keyMoments)
 }
 
 class FrameExtractor(private val context: Context) : IFrameExtractor {
@@ -59,6 +66,13 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
         videoFile: File,
         shortcode: String,
         keyMoments: List<KeyMomentAnalysis>
+    ): ExtractedFramesResult = extractFrames(videoFile, shortcode, keyMoments) { _, _ -> }
+
+    override suspend fun extractFrames(
+        videoFile: File,
+        shortcode: String,
+        keyMoments: List<KeyMomentAnalysis>,
+        onProgress: (Int, Int) -> Unit
     ): ExtractedFramesResult = withContext(Dispatchers.IO) {
         val outputDir = File(context.filesDir, "snapshots/$shortcode").apply { mkdirs() }
         val retriever = MediaMetadataRetriever()
@@ -93,6 +107,8 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
             // 2. Extract up to 5 key-moment frames (720px max width, quality 80 WebP)
             //    with blank-frame nudge (+/-400ms) and 16x16 MAD duplicate filtering.
             val momentsToExtract = keyMoments.take(5)
+            val totalSteps = (1 + momentsToExtract.size).coerceAtLeast(1)
+            onProgress(1, totalSteps)
             momentsToExtract.forEachIndexed { index, moment ->
                 val rawTimeUs = (moment.timestampSec.toLong() * 1_000_000L)
                     .coerceIn(0L, (durationUs - 100_000L).coerceAtLeast(0L))
@@ -123,6 +139,7 @@ class FrameExtractor(private val context: Context) : IFrameExtractor {
                     }
                     frameRaw.recycle()
                 }
+                onProgress(index + 2, totalSteps)
             }
 
             Log.i(TAG, "Extracted ${momentsWithImages.size} key moment frames + thumb (${coverSizeBytes}B) for $shortcode")

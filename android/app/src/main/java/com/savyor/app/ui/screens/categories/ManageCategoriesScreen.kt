@@ -1,38 +1,44 @@
 package com.savyor.app.ui.screens.categories
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.savyor.app.R
 import com.savyor.app.data.local.entity.CategoryEntity
 import com.savyor.app.ui.screens.library.CrystalIconWell
 import com.savyor.app.ui.screens.library.SavyorPrimaryPillFab
 import com.savyor.app.ui.theme.*
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ManageCategoriesScreen(
     viewModel: ManageCategoriesViewModel,
@@ -42,11 +48,62 @@ fun ManageCategoriesScreen(
     val haptic = LocalHapticFeedback.current
     val categoriesWithCounts by viewModel.categoriesWithCounts.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var editingCategory by remember { mutableStateOf<CategoryEntity?>(null) }
-    var recoloringCategory by remember { mutableStateOf<CategoryEntity?>(null) }
     var deletingCategory by remember { mutableStateOf<CategoryWithCount?>(null) }
+
+    var orderedList by remember(categoriesWithCounts) { mutableStateOf(categoriesWithCounts) }
+    var draggingCategoryId by remember { mutableStateOf<Long?>(null) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+
+    fun onStartDrag(id: Long) {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        draggingCategoryId = id
+        dragOffsetY = 0f
+    }
+
+    fun onDragDelta(id: Long, deltaY: Float) {
+        dragOffsetY += deltaY
+        val currentIdx = orderedList.indexOfFirst { it.category.id == id }
+        if (currentIdx < 0) return
+
+        // Header item takes lazy index 0, categories start at index 1
+        val visibleItems = listState.layoutInfo.visibleItemsInfo
+        val currentItemInfo = visibleItems.firstOrNull { it.key == id } ?: return
+        val itemHeight = currentItemInfo.size.toFloat().coerceAtLeast(1f)
+
+        if (dragOffsetY > itemHeight * 0.55f && currentIdx < orderedList.lastIndex) {
+            val mutable = orderedList.toMutableList()
+            val moved = mutable.removeAt(currentIdx)
+            mutable.add(currentIdx + 1, moved)
+            orderedList = mutable
+            dragOffsetY -= itemHeight
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        } else if (dragOffsetY < -itemHeight * 0.55f && currentIdx > 0) {
+            val mutable = orderedList.toMutableList()
+            val moved = mutable.removeAt(currentIdx)
+            mutable.add(currentIdx - 1, moved)
+            orderedList = mutable
+            dragOffsetY += itemHeight
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
+
+    fun onFinishDrag() {
+        if (draggingCategoryId != null) {
+            draggingCategoryId = null
+            dragOffsetY = 0f
+            viewModel.reorderCategories(orderedList.map { it.category.id })
+        }
+    }
+
+    fun onCancelDrag() {
+        draggingCategoryId = null
+        dragOffsetY = 0f
+        orderedList = categoriesWithCounts
+    }
 
     LaunchedEffect(Unit) {
         viewModel.userFeedback.collect { message ->
@@ -63,6 +120,8 @@ fun ManageCategoriesScreen(
             .background(colors.bgCanvas)
     ) {
         LazyColumn(
+            state = listState,
+            userScrollEnabled = draggingCategoryId == null,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 top = statusBarTop + 76.dp,
@@ -72,7 +131,7 @@ fun ManageCategoriesScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            item {
+            item(key = "header_subtitle") {
                 Column(modifier = Modifier.padding(bottom = 4.dp)) {
                     Text(
                         text = "LIBRARY TOPICS",
@@ -81,53 +140,81 @@ fun ManageCategoriesScreen(
                     )
                     Spacer(modifier = Modifier.height(3.dp))
                     Text(
-                        text = "Tap any color dot to recolor, or organize your custom topics",
+                        text = "Drag handles or long-press to reorder topics, or edit custom ones",
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.inkSecondary
                     )
                 }
             }
 
-            items(categoriesWithCounts, key = { it.category.name }) { item ->
+            itemsIndexed(orderedList, key = { _, item -> item.category.id }) { _, item ->
                 val category = item.category
                 val isOther = category.name.equals("Other", ignoreCase = true)
-                val catColor = categoryDotColor(category.name, category.colorHex, colors.isDark)
+                val isDragging = draggingCategoryId == category.id
+                val dragScale by animateFloatAsState(
+                    targetValue = if (isDragging) 1.02f else 1f,
+                    animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                    label = "cat_row_drag_scale"
+                )
                 val cardShape = RoundedCornerShape(14.dp)
 
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .zIndex(if (isDragging) 1f else 0f)
+                        .then(
+                            if (isDragging) Modifier
+                            else Modifier.animateItemPlacement(spring(stiffness = Spring.StiffnessMediumLow))
+                        )
+                        .graphicsLayer {
+                            translationY = if (isDragging) dragOffsetY else 0f
+                            scaleX = dragScale
+                            scaleY = dragScale
+                        }
+                        .pointerInput(category.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { onStartDrag(category.id) },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    onDragDelta(category.id, dragAmount.y)
+                                },
+                                onDragEnd = { onFinishDrag() },
+                                onDragCancel = { onCancelDrag() }
+                            )
+                        }
                         .savyorCardBorder(cardShape),
                     shape = cardShape,
-                    colors = CardDefaults.cardColors(containerColor = colors.surfaceCard),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isDragging) colors.surfaceElevated else colors.surfaceCard
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (isDragging) 8.dp else 0.dp)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 26dp category dot with subtle specular inner ring
-                        Box(
+                        Icon(
+                            imageVector = Icons.Rounded.DragHandle,
+                            contentDescription = "Reorder ${category.name}",
+                            tint = if (isDragging) colors.inkPrimary else colors.inkMuted,
                             modifier = Modifier
-                                .size(26.dp)
-                                .clip(CircleShape)
-                                .background(catColor)
-                                .border(
-                                    width = 1.dp,
-                                    brush = Brush.verticalGradient(
-                                        listOf(Color.White.copy(alpha = 0.55f), Color.Black.copy(alpha = 0.15f))
-                                    ),
-                                    shape = CircleShape
-                                )
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    recoloringCategory = category
+                                .size(24.dp)
+                                .pointerInput(category.id) {
+                                    detectDragGestures(
+                                        onDragStart = { onStartDrag(category.id) },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            onDragDelta(category.id, dragAmount.y)
+                                        },
+                                        onDragEnd = { onFinishDrag() },
+                                        onDragCancel = { onCancelDrag() }
+                                    )
                                 }
                         )
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -272,7 +359,6 @@ fun ManageCategoriesScreen(
     // Dialog: Add Category
     if (showAddDialog) {
         var newName by remember { mutableStateOf("") }
-        var selectedColorHex by remember { mutableStateOf(CategorySwatches.first().hex) }
 
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
@@ -285,34 +371,21 @@ fun ManageCategoriesScreen(
                 )
             },
             text = {
-                Column {
-                    OutlinedTextField(
-                        value = newName,
-                        onValueChange = { newName = it },
-                        label = { Text("Category Name", fontFamily = SavyorSansFamily, fontSize = 12.sp) },
-                        placeholder = { Text("e.g. Photography", fontSize = 13.sp) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = "COLOR SWATCH",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.inkMuted
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ColorSwatchPicker(
-                        selectedHex = selectedColorHex,
-                        onSelectHex = { selectedColorHex = it }
-                    )
-                }
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Category Name", fontFamily = SavyorSansFamily, fontSize = 12.sp) },
+                    placeholder = { Text("e.g. Photography", fontSize = 13.sp) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
             },
             confirmButton = {
                 Button(
                     onClick = {
                         if (newName.isNotBlank()) {
-                            viewModel.addCategory(newName, selectedColorHex)
+                            viewModel.addCategory(newName)
                             showAddDialog = false
                         }
                     },
@@ -388,56 +461,6 @@ fun ManageCategoriesScreen(
         )
     }
 
-    // Dialog: Recolor Category
-    recoloringCategory?.let { cat ->
-        var chosenHex by remember { mutableStateOf(cat.colorHex) }
-        AlertDialog(
-            onDismissRequest = { recoloringCategory = null },
-            containerColor = colors.surfaceElevated,
-            title = {
-                Text(
-                    text = "Recolor \"${cat.name}\"",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = colors.inkPrimary
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        text = "Select a color swatch for this category's dots and badges.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.inkSecondary
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    ColorSwatchPicker(
-                        selectedHex = chosenHex,
-                        onSelectHex = { chosenHex = it }
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.updateColor(cat.name, chosenHex)
-                        recoloringCategory = null
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.ctaBg,
-                        contentColor = colors.ctaFg
-                    ),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Apply", fontFamily = SavyorSansFamily, fontWeight = FontWeight.SemiBold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { recoloringCategory = null }) {
-                    Text("Cancel", fontFamily = SavyorSansFamily, color = colors.inkSecondary)
-                }
-            }
-        )
-    }
-
     // Dialog: Delete Category Confirmation
     deletingCategory?.let { item ->
         val cat = item.category
@@ -481,53 +504,5 @@ fun ManageCategoriesScreen(
                 }
             }
         )
-    }
-}
-
-@Composable
-fun ColorSwatchPicker(
-    selectedHex: String,
-    onSelectHex: (String) -> Unit
-) {
-    val colors = LocalSavyorColors.current
-    val haptic = LocalHapticFeedback.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val rows = CategorySwatches.chunked(5)
-        rows.forEach { rowSwatches ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                rowSwatches.forEach { swatch ->
-                    val isSelected = selectedHex.equals(swatch.hex, ignoreCase = true)
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(swatch.color)
-                            .border(
-                                width = if (isSelected) 2.5.dp else 1.dp,
-                                color = if (isSelected) colors.inkPrimary else colors.borderSubtle,
-                                shape = CircleShape
-                            )
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onSelectHex(swatch.hex)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSelected) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = "Selected",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }

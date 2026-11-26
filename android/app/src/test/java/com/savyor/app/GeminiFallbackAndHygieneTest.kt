@@ -168,4 +168,94 @@ class GeminiFallbackAndHygieneTest {
         assertEquals("gemini-3.6-flash", result.modelUsed)
         assertEquals("Clean Reel Note", result.title)
     }
+
+    @Test
+    fun testAutoConnectionTestFallsBackOn503ToFlash() = runBlocking {
+        val attemptedModels = mutableListOf<String>()
+        val interceptor = Interceptor { chain ->
+            val req = chain.request()
+            val url = req.url.toString()
+            val model = url.substringAfter("/models/").substringBefore(":generateContent")
+            attemptedModels.add(model)
+
+            val (code, body) = when (model) {
+                "gemini-4-hydrogen" -> 503 to """{"error": {"message": "This model is currently experiencing high demand."}}"""
+                "gemini-3.8-flash" -> 200 to """{"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "OK"}]}}]}"""
+                else -> 404 to """{"error": {"message": "Not found"}}"""
+            }
+
+            Response.Builder()
+                .request(req)
+                .protocol(Protocol.HTTP_1_1)
+                .code(code)
+                .message(if (code == 200) "OK" else "Error")
+                .body(body.toResponseBody("application/json".toMediaType()))
+                .build()
+        }
+
+        val client = GeminiFilesClient(client = OkHttpClient.Builder().addInterceptor(interceptor).build())
+        val result = client.testConnection(apiKey = "test-key", modelMode = "AUTO")
+
+        assertTrue("AUTO testConnection must succeed via fallback", result.isSuccess)
+        assertEquals("Connected via fallback (gemini-3.8-flash)", result.getOrNull())
+        assertEquals(listOf("gemini-4-hydrogen", "gemini-3.8-flash"), attemptedModels)
+    }
+
+    @Test
+    fun testAutoConnectionTestFailsFastOnInvalidApiKey() = runBlocking {
+        val attemptedModels = mutableListOf<String>()
+        val interceptor = Interceptor { chain ->
+            val req = chain.request()
+            val model = req.url.toString().substringAfter("/models/").substringBefore(":generateContent")
+            attemptedModels.add(model)
+
+            Response.Builder()
+                .request(req)
+                .protocol(Protocol.HTTP_1_1)
+                .code(400)
+                .message("Bad Request")
+                .body("""{"error": {"message": "API key not valid. Please pass a valid API key."}}""".toResponseBody("application/json".toMediaType()))
+                .build()
+        }
+
+        val client = GeminiFilesClient(client = OkHttpClient.Builder().addInterceptor(interceptor).build())
+        val result = client.testConnection(apiKey = "bad-key", modelMode = "AUTO")
+
+        assertTrue("Invalid key must fail", result.isFailure)
+        assertEquals(listOf("gemini-4-hydrogen"), attemptedModels)
+    }
+
+    @Test
+    fun testParseResponseHandlesProseAndMalformedStructuredContent() {
+        val client = GeminiFilesClient()
+        val innerJson = """
+            {
+              "title": "Resilient Note",
+              "category": "Tech & Code",
+              "summary": "Core summary preserved.",
+              "structured_content": "unexpected string instead of object"
+            }
+        """.trimIndent()
+        val wrappedPayload = "Here is the JSON:\n```json\n$innerJson\n```"
+        val escaped = com.google.gson.Gson().toJson(wrappedPayload)
+        val response = """
+            {
+              "candidates": [
+                {
+                  "finishReason": "STOP",
+                  "content": {
+                    "parts": [
+                      {"thought": false, "text": $escaped}
+                    ]
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val parsed = client.parseGeminiResponse(response)
+        assertEquals("Resilient Note", parsed.title)
+        assertEquals("Core summary preserved.", parsed.summary)
+        assertEquals("general", parsed.structuredContent?.noteType)
+    }
 }

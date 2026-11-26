@@ -266,14 +266,37 @@ fun ReelDetailScreen(
                             color = colors.inkMuted
                         )
 
-                        // Tappable Muted Status Badge
+                        // Tappable Status Pill (omits "REVIEWED" label text)
                         Box {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable { showStatusMenu = true }
                             ) {
-                                StatusBadge(status = currentReel.status)
+                                if (currentReel.status.equals("REVIEWED", ignoreCase = true)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .background(colors.surfaceRecessed, RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                                    ) {
+                                        Text(
+                                            text = "Status",
+                                            fontFamily = SavyorMonoFamily,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = colors.inkMuted
+                                        )
+                                        Icon(
+                                            Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Change Status",
+                                            tint = colors.inkMuted,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                    }
+                                } else {
+                                    StatusBadge(status = currentReel.status)
+                                }
                             }
 
                             DropdownMenu(
@@ -308,54 +331,58 @@ fun ReelDetailScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // Hero Title (24sp Bold SansSerif)
+                    val displayTitle = currentReel.title
+                        .takeIf {
+                            it.isNotBlank() &&
+                                !it.startsWith("Processing reel @", ignoreCase = true) &&
+                                !it.contains("@${currentReel.shortcode}", ignoreCase = true)
+                        }
+                        ?: "Saved Reel"
                     Text(
-                        text = currentReel.title.ifBlank { "Saved Reel" },
+                        text = displayTitle,
                         style = MaterialTheme.typography.headlineMedium,
                         color = colors.inkPrimary
                     )
 
-                    // Creator Subtitle + Open in Instagram Action
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (currentReel.creator.isNotBlank()) {
-                            Text(
-                                text = "@${currentReel.creator}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.inkSecondary,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                        } else {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-
-                        val igShape = RoundedCornerShape(10.dp)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(igShape)
-                                .savyorLiquidCrystal(tier = CrystalTier.PILL, shape = igShape)
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    openInInstagram(context, currentReel.cleanUrl.ifBlank { currentReel.originalUrl })
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            InstagramGlyphIcon(
-                                tint = colors.inkPrimary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Instagram",
-                                fontFamily = SavyorSansFamily,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.inkPrimary
-                            )
+                    // Creator Name + Username directly underneath
+                    val hasCreator = currentReel.creator.isNotBlank()
+                    val cleanUsername = currentReel.creatorUsername.trim().removePrefix("@")
+                    val hasDistinctUsername = cleanUsername.isNotBlank() &&
+                        !cleanUsername.equals(currentReel.creator.trim(), ignoreCase = true)
+                    if (hasCreator || cleanUsername.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            if (hasCreator) {
+                                Text(
+                                    text = currentReel.creator,
+                                    fontFamily = SavyorSansFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.inkPrimary
+                                )
+                            }
+                            if (hasDistinctUsername) {
+                                Text(
+                                    text = "@$cleanUsername",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 12.sp,
+                                    color = colors.inkSecondary
+                                )
+                            } else if (!hasCreator && cleanUsername.isNotBlank()) {
+                                Text(
+                                    text = "@$cleanUsername",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 12.sp,
+                                    color = colors.inkSecondary
+                                )
+                            } else if (hasCreator) {
+                                Text(
+                                    text = "@${currentReel.creator}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 11.5.sp,
+                                    color = colors.inkMuted
+                                )
+                            }
                         }
                     }
 
@@ -573,8 +600,15 @@ fun ReelDetailScreen(
                     exit = fadeOut(tween(180)),
                     modifier = Modifier.padding(start = 10.dp, end = 8.dp)
                 ) {
+                    val topBarTitle = currentReel.title
+                        .takeIf {
+                            it.isNotBlank() &&
+                                !it.startsWith("Processing reel @", ignoreCase = true) &&
+                                !it.contains("@${currentReel.shortcode}", ignoreCase = true)
+                        }
+                        ?: "Saved Reel"
                     Text(
-                        text = currentReel.title.ifBlank { "Saved Reel" },
+                        text = topBarTitle,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -607,15 +641,32 @@ fun ReelDetailScreen(
                         copyMarkdownNotes(context, currentReel, keyTakeaways, structuredContent, extractedResources)
                     }
                 )
-                CrystalIconWell(
-                    icon = Icons.AutoMirrored.Outlined.OpenInNew,
-                    contentDescription = "Open in Instagram",
-                    size = 34.dp,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        openInInstagram(context, currentReel.cleanUrl.ifBlank { currentReel.originalUrl })
-                    }
-                )
+                val igShape = RoundedCornerShape(17.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .height(34.dp)
+                        .clip(igShape)
+                        .savyorLiquidCrystal(tier = CrystalTier.PILL, shape = igShape)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            openInInstagram(context, currentReel.cleanUrl.ifBlank { currentReel.originalUrl })
+                        }
+                        .padding(horizontal = 10.dp)
+                ) {
+                    InstagramGlyphIcon(
+                        tint = colors.inkPrimary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "Instagram",
+                        fontFamily = SavyorSansFamily,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.inkPrimary
+                    )
+                }
                 Box {
                     CrystalIconWell(
                         icon = Icons.Default.MoreVert,

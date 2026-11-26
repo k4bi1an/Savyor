@@ -32,6 +32,16 @@ interface CategoryDao {
     @Query("UPDATE categories SET color_hex = :colorHex WHERE name = :name")
     suspend fun updateCategoryColor(name: String, colorHex: String)
 
+    @Query("UPDATE categories SET display_order = :displayOrder WHERE id = :id")
+    suspend fun updateDisplayOrder(id: Long, displayOrder: Int)
+
+    @Transaction
+    suspend fun updateCategoryOrder(orderedIds: List<Long>) {
+        orderedIds.forEachIndexed { index, id ->
+            updateDisplayOrder(id, index)
+        }
+    }
+
     @Query("SELECT * FROM categories WHERE name = :name LIMIT 1")
     suspend fun getCategoryByName(name: String): CategoryEntity?
 

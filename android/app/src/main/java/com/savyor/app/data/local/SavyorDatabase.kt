@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
         CategoryEntity::class,
         CategoryCorrectionEntity::class
     ],
-    version = 4,
+    version = 6,
     exportSchema = false
 )
 abstract class SavyorDatabase : RoomDatabase() {
@@ -97,6 +97,19 @@ abstract class SavyorDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `processing_progress` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `processing_detail` TEXT DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `reels` ADD COLUMN `creator_username` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getInstance(context: Context): SavyorDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -104,7 +117,7 @@ abstract class SavyorDatabase : RoomDatabase() {
                     SavyorDatabase::class.java,
                     "savyor.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

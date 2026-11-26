@@ -33,6 +33,9 @@ data class ReelEntity(
     @ColumnInfo(name = "creator")
     val creator: String = "",
 
+    @ColumnInfo(name = "creator_username")
+    val creatorUsername: String = "",
+
     @ColumnInfo(name = "source_language")
     val sourceLanguage: String = "English",
 
@@ -131,5 +134,11 @@ data class ReelEntity(
     val aiModelUsed: String? = null,
 
     @ColumnInfo(name = "processing_error")
-    val processingError: String? = null
+    val processingError: String? = null,
+
+    @ColumnInfo(name = "processing_progress")
+    val processingProgress: Int = 0,
+
+    @ColumnInfo(name = "processing_detail")
+    val processingDetail: String? = null
 )

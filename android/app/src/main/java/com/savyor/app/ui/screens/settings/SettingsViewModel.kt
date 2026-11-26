@@ -10,12 +10,17 @@ import com.savyor.app.BuildConfig
 import com.savyor.app.data.local.BackupRestoreManager
 import com.savyor.app.data.local.EncryptedSettingsManager
 import com.savyor.app.data.local.SavyorDatabase
+import com.savyor.app.data.remote.AppInstallLaunchResult
+import com.savyor.app.data.remote.AppUpdateCheckResult
+import com.savyor.app.data.remote.AppUpdateInfo
+import com.savyor.app.data.remote.AppUpdateManager
 import com.savyor.app.data.remote.GeminiFilesClient
 import com.savyor.app.data.remote.GeminiModelOption
 import com.savyor.app.data.remote.YtDlpEngine
 import com.savyor.app.ui.theme.SavyorThemeMode
 import com.savyor.app.ui.theme.SavyorThemeState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -37,6 +42,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val settings = EncryptedSettingsManager(application)
     private val geminiClient = GeminiFilesClient()
     private val ytEngine = YtDlpEngine(application)
+    private val appUpdateManager = AppUpdateManager()
 
     private val _maskedApiKey = MutableStateFlow(settings.getMaskedApiKey())
     val maskedApiKey: StateFlow<String> = _maskedApiKey.asStateFlow()
@@ -71,6 +77,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _isTestingConnection = MutableStateFlow(false)
     val isTestingConnection: StateFlow<Boolean> = _isTestingConnection.asStateFlow()
 
+    private var connectionTestJob: Job? = null
+
     private val _storageStats = MutableStateFlow(StorageStats())
     val storageStats: StateFlow<StorageStats> = _storageStats.asStateFlow()
 
@@ -92,13 +100,119 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _geminiModel = MutableStateFlow(GeminiModelOption.fromModeKey(settings.geminiModelMode))
     val geminiModel: StateFlow<GeminiModelOption> = _geminiModel.asStateFlow()
 
+    private val _availableAppUpdate = MutableStateFlow<AppUpdateInfo?>(null)
+    val availableAppUpdate: StateFlow<AppUpdateInfo?> = _availableAppUpdate.asStateFlow()
+
+    private val _appUpdateStatus = MutableStateFlow("IDLE")
+    val appUpdateStatus: StateFlow<String> = _appUpdateStatus.asStateFlow()
+
+    private val _appUpdateDownloadProgress = MutableStateFlow(0)
+    val appUpdateDownloadProgress: StateFlow<Int> = _appUpdateDownloadProgress.asStateFlow()
+
+    private val _downloadedApkFile = MutableStateFlow<File?>(null)
+    val downloadedApkFile: StateFlow<File?> = _downloadedApkFile.asStateFlow()
+
     init {
         refreshEngineVersion()
         calculateStorage()
+        checkForAppUpdate(force = false)
     }
 
+    fun checkForAppUpdate(force: Boolean = true) {
+        if (_appUpdateStatus.value == "CHECKING" || _appUpdateStatus.value == "DOWNLOADING") return
+        val twelveHoursMs = 12L * 3600L * 1000L
+        val now = System.currentTimeMillis()
+        if (!force && (now - settings.lastAppUpdateCheckMs) < twelveHoursMs && _appUpdateStatus.value != "IDLE") {
+            return
+        }
+        _appUpdateStatus.value = "CHECKING"
+        viewModelScope.launch {
+            when (val res = appUpdateManager.checkForUpdate()) {
+                is AppUpdateCheckResult.UpdateAvailable -> {
+                    settings.lastAppUpdateCheckMs = System.currentTimeMillis()
+                    _availableAppUpdate.value = res.info
+                    _appUpdateStatus.value = "UPDATE_AVAILABLE"
+                }
+                is AppUpdateCheckResult.UpToDate -> {
+                    settings.lastAppUpdateCheckMs = System.currentTimeMillis()
+                    _availableAppUpdate.value = null
+                    _appUpdateStatus.value = "UP_TO_DATE"
+                    if (force) {
+                        _backupRestoreMessage.emit("Savyor v${BuildConfig.VERSION_NAME} is up to date")
+                    }
+                }
+                is AppUpdateCheckResult.Error -> {
+                    _appUpdateStatus.value = "ERROR"
+                    if (force) {
+                        _backupRestoreMessage.emit("Update check failed: ${res.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    fun downloadAndInstallAppUpdate() {
+        val info = _availableAppUpdate.value ?: return
+        val existing = _downloadedApkFile.value
+        val app = getApplication<Application>()
+        if (existing != null && existing.exists()) {
+            viewModelScope.launch {
+                handleInstallLaunch(app, existing)
+            }
+            return
+        }
+        if (_appUpdateStatus.value == "DOWNLOADING") return
+
+        _appUpdateStatus.value = "DOWNLOADING"
+        _appUpdateDownloadProgress.value = 0
+        viewModelScope.launch {
+            val res = appUpdateManager.downloadApk(app, info) { pct, _, _ ->
+                _appUpdateDownloadProgress.value = pct
+            }
+            res.fold(
+                onSuccess = { apkFile ->
+                    _downloadedApkFile.value = apkFile
+                    _appUpdateStatus.value = "READY_TO_INSTALL"
+                    handleInstallLaunch(app, apkFile)
+                },
+                onFailure = { err ->
+                    _appUpdateStatus.value = "UPDATE_AVAILABLE"
+                    _backupRestoreMessage.emit("Download failed: ${err.message}")
+                }
+            )
+        }
+    }
+
+    private suspend fun handleInstallLaunch(app: Application, apkFile: File) {
+        when (val launch = appUpdateManager.launchInstaller(app, apkFile)) {
+            is AppInstallLaunchResult.LaunchedInstaller -> Unit
+            is AppInstallLaunchResult.NeedsInstallPermission -> {
+                _backupRestoreMessage.emit("Enable 'Allow from this source' for Savyor, then tap Install")
+            }
+            is AppInstallLaunchResult.Error -> {
+                _backupRestoreMessage.emit("Install failed: ${launch.message}")
+            }
+        }
+    }
+
+    fun getEditableApiKey(): String = settings.geminiApiKey
+
     fun saveApiKey(key: String) {
-        settings.geminiApiKey = key
+        val sanitized = key.trim().replace(Regex("\\s+"), "")
+        connectionTestJob?.cancel()
+        _isTestingConnection.value = false
+        settings.geminiApiKey = sanitized
+        _maskedApiKey.value = settings.getMaskedApiKey()
+        _connectionTestStatus.value = null
+        if (sanitized.isNotBlank()) {
+            testGeminiConnection()
+        }
+    }
+
+    fun clearApiKey() {
+        connectionTestJob?.cancel()
+        _isTestingConnection.value = false
+        settings.geminiApiKey = ""
         _maskedApiKey.value = settings.getMaskedApiKey()
         _connectionTestStatus.value = null
     }
@@ -120,6 +234,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setGeminiModel(option: GeminiModelOption) {
+        connectionTestJob?.cancel()
+        _isTestingConnection.value = false
         settings.geminiModelMode = option.modeKey
         _geminiModel.value = option
         _connectionTestStatus.value = null
@@ -238,21 +354,26 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun testGeminiConnection() {
-        val key = settings.geminiApiKey
+        val key = settings.geminiApiKey.trim()
         if (key.isBlank()) {
             _connectionTestStatus.value = "Error: API key is blank"
             return
         }
 
+        connectionTestJob?.cancel()
         _isTestingConnection.value = true
         _connectionTestStatus.value = "Testing connection..."
-        viewModelScope.launch {
-            val res = geminiClient.testConnection(key, _geminiModel.value.modeKey)
-            _isTestingConnection.value = false
-            _connectionTestStatus.value = res.fold(
-                onSuccess = { it },
-                onFailure = { "Failed: ${it.message}" }
-            )
+        val modelMode = _geminiModel.value.modeKey
+        connectionTestJob = viewModelScope.launch {
+            try {
+                val res = geminiClient.testConnection(key, modelMode)
+                _connectionTestStatus.value = res.fold(
+                    onSuccess = { it },
+                    onFailure = { "Failed: ${it.message}" }
+                )
+            } finally {
+                _isTestingConnection.value = false
+            }
         }
     }
 

@@ -179,11 +179,14 @@ fun Modifier.savyorCardBorder(shape: Shape): Modifier = composed {
 
 /**
  * Top status-bar scrim: 100% opaque bgCanvas across the status bar region,
- * fading smoothly to transparent over the next 28.dp below it so scrolled
- * content never collides with system clock or status icons.
+ * fading smoothly through multi-stop easing below it so scrolled content
+ * never collides with system clock or status icons.
  */
 @Composable
-fun TopStatusBarScrim(statusBarTop: Dp) {
+fun TopStatusBarScrim(
+    statusBarTop: Dp,
+    fadeHeight: Dp = 44.dp
+) {
     val colors = LocalSavyorColors.current
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
@@ -195,10 +198,13 @@ fun TopStatusBarScrim(statusBarTop: Dp) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(28.dp)
+                .height(fadeHeight)
                 .background(
                     Brush.verticalGradient(
-                        listOf(colors.bgCanvas, Color.Transparent)
+                        0.00f to colors.bgCanvas,
+                        0.32f to colors.bgCanvas.copy(alpha = 0.84f),
+                        0.68f to colors.bgCanvas.copy(alpha = 0.36f),
+                        1.00f to Color.Transparent
                     )
                 )
         )

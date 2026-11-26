@@ -38,7 +38,7 @@ class ManageCategoriesViewModel(application: Application) : AndroidViewModel(app
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun addCategory(name: String, colorHex: String) {
+    fun addCategory(name: String, colorHex: String = "#2F5D50") {
         val cleanName = name.trim()
         if (cleanName.isBlank()) {
             viewModelScope.launch { _userFeedback.emit("Category name cannot be empty") }
@@ -124,6 +124,14 @@ class ManageCategoriesViewModel(application: Application) : AndroidViewModel(app
                 correctionDao.updateToCategory(categoryName, "Other")
 
                 _userFeedback.emit("Deleted \"$categoryName\" (reels moved to Other)")
+            }
+        }
+    }
+
+    fun reorderCategories(orderedIds: List<Long>) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                categoryDao.updateCategoryOrder(orderedIds)
             }
         }
     }

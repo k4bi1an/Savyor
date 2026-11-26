@@ -93,14 +93,28 @@ interface ReelDao {
         updatedAt: Long = System.currentTimeMillis()
     )
 
-    @Query("UPDATE reels SET processing_state = :state, status = :status, error_message = :errorMessage, processing_error = :errorMessage, updated_at = :updatedAt WHERE shortcode = :shortcode")
+    @Query("UPDATE reels SET processing_state = :state, status = :status, error_message = :errorMessage, processing_error = :errorMessage, processing_progress = :progress, processing_detail = :detail, updated_at = :updatedAt WHERE shortcode = :shortcode")
     suspend fun updateProcessingAndStatus(
         shortcode: String,
         state: String,
         status: String,
         errorMessage: String? = null,
+        progress: Int = 0,
+        detail: String? = null,
         updatedAt: Long = System.currentTimeMillis()
     )
+
+    @Query("UPDATE reels SET processing_state = :state, processing_progress = :progress, processing_detail = :detail, updated_at = :updatedAt WHERE shortcode = :shortcode")
+    suspend fun updateProcessingProgress(
+        shortcode: String,
+        state: String,
+        progress: Int,
+        detail: String? = null,
+        updatedAt: Long = System.currentTimeMillis()
+    )
+
+    @Query("UPDATE reels SET title = '' WHERE shortcode = :shortcode AND title LIKE 'Processing reel @%'")
+    suspend fun clearLegacyPlaceholderTitle(shortcode: String)
 
     @Query("DELETE FROM reels WHERE shortcode = :shortcode")
     suspend fun deleteByShortcode(shortcode: String)

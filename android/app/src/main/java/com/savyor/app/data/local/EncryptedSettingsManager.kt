@@ -42,6 +42,8 @@ class EncryptedSettingsManager(private val context: Context) {
         private const val KEY_YTDLP_LAST_CHECKED_EPOCH_MS = "ytdlp_last_checked_epoch_ms"
         private const val KEY_YTDLP_UPDATE_STATUS = "ytdlp_update_status"
         private const val KEY_GEMINI_MODEL_MODE = "gemini_model_mode"
+        private const val KEY_LAST_APP_UPDATE_CHECK_MS = "last_app_update_check_ms"
+        private const val KEY_DISMISSED_APP_UPDATE_VERSION = "dismissed_app_update_version"
     }
 
     var geminiApiKey: String
@@ -99,6 +101,14 @@ class EncryptedSettingsManager(private val context: Context) {
     var geminiModelMode: String
         get() = prefs.getString(KEY_GEMINI_MODEL_MODE, "AUTO") ?: "AUTO"
         set(value) = prefs.edit().putString(KEY_GEMINI_MODEL_MODE, value).apply()
+
+    var lastAppUpdateCheckMs: Long
+        get() = prefs.getLong(KEY_LAST_APP_UPDATE_CHECK_MS, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_APP_UPDATE_CHECK_MS, value).apply()
+
+    var dismissedAppUpdateVersion: String
+        get() = prefs.getString(KEY_DISMISSED_APP_UPDATE_VERSION, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_DISMISSED_APP_UPDATE_VERSION, value).apply()
 
     fun isApiKeyConfigured(): Boolean = geminiApiKey.isNotBlank()
 
