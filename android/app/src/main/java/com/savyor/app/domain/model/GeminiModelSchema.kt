@@ -1,7 +1,9 @@
 package com.savyor.app.domain.model
 
+import androidx.annotation.Keep
 import com.google.gson.annotations.SerializedName
 
+@Keep
 data class KeyMomentAnalysis(
     @SerializedName("timestamp_sec")
     val timestampSec: Int,
@@ -9,6 +11,7 @@ data class KeyMomentAnalysis(
     val label: String
 )
 
+@Keep
 data class ExtractedResource(
     @SerializedName(value = "name", alternate = ["title"])
     val name: String,
@@ -20,6 +23,7 @@ data class ExtractedResource(
     val kind: String = "DIRECT" // REPO, DIRECT, OFFICIAL, SEARCH
 )
 
+@Keep
 data class RecipeIngredient(
     @SerializedName("item")
     val item: String,
@@ -27,6 +31,7 @@ data class RecipeIngredient(
     val quantity: String = ""
 )
 
+@Keep
 data class RecipeStep(
     @SerializedName("step_number")
     val stepNumber: Int,
@@ -34,6 +39,7 @@ data class RecipeStep(
     val instruction: String
 )
 
+@Keep
 data class StructuredContent(
     @SerializedName("note_type")
     val noteType: String = "general", // recipe, tutorial, code, workout, listicle, product_review, concept_breakdown, travel_guide, general
@@ -65,6 +71,7 @@ data class StructuredContent(
     val sections: Map<String, String>? = null
 )
 
+@Keep
 data class GeminiReelAnalysis(
     @SerializedName("title")
     val title: String,
@@ -106,5 +113,8 @@ data class GeminiReelAnalysis(
     val extractedResources: List<ExtractedResource> = emptyList(),
 
     @SerializedName("structured_content")
-    val structuredContent: StructuredContent? = null
+    val structuredContent: StructuredContent? = null,
+
+    @Transient
+    val modelUsed: String = ""
 )

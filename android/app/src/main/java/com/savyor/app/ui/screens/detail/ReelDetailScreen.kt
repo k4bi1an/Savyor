@@ -309,20 +309,55 @@ fun ReelDetailScreen(
 
                     // Hero Title (24sp Bold SansSerif)
                     Text(
-                        text = currentReel.title.ifBlank { "Reel @${currentReel.shortcode}" },
+                        text = currentReel.title.ifBlank { "Saved Reel" },
                         style = MaterialTheme.typography.headlineMedium,
                         color = colors.inkPrimary
                     )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    // Creator Subtitle + Open in Instagram Action
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (currentReel.creator.isNotBlank()) {
+                            Text(
+                                text = "@${currentReel.creator}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.inkSecondary,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
 
-                    // Creator Subtitle
-                    val creatorText = if (currentReel.creator.isNotBlank()) "@${currentReel.creator}" else "@${currentReel.shortcode}"
-                    Text(
-                        text = creatorText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.inkSecondary
-                    )
+                        val igShape = RoundedCornerShape(10.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(igShape)
+                                .savyorLiquidCrystal(tier = CrystalTier.PILL, shape = igShape)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    openInInstagram(context, currentReel.cleanUrl.ifBlank { currentReel.originalUrl })
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            InstagramGlyphIcon(
+                                tint = colors.inkPrimary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Instagram",
+                                fontFamily = SavyorSansFamily,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.inkPrimary
+                            )
+                        }
+                    }
 
                     // Primary Highlighted Architectural Use-When Block
                     if (currentReel.useWhen.isNotBlank()) {
@@ -539,7 +574,7 @@ fun ReelDetailScreen(
                     modifier = Modifier.padding(start = 10.dp, end = 8.dp)
                 ) {
                     Text(
-                        text = currentReel.title.ifBlank { "Reel @${currentReel.shortcode}" },
+                        text = currentReel.title.ifBlank { "Saved Reel" },
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -578,8 +613,7 @@ fun ReelDetailScreen(
                     size = 34.dp,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(currentReel.cleanUrl))
-                        context.startActivity(browserIntent)
+                        openInInstagram(context, currentReel.cleanUrl.ifBlank { currentReel.originalUrl })
                     }
                 )
                 Box {
@@ -1882,6 +1916,53 @@ fun MyNoteCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun InstagramGlyphIcon(
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.foundation.Canvas(modifier = modifier) {
+        val strokeWidth = size.minDimension * 0.11f
+        val inset = strokeWidth / 2f
+        val corner = size.minDimension * 0.28f
+        drawRoundRect(
+            color = tint,
+            topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+            size = androidx.compose.ui.geometry.Size(size.width - strokeWidth, size.height - strokeWidth),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(corner, corner),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
+        )
+        drawCircle(
+            color = tint,
+            radius = size.minDimension * 0.22f,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth)
+        )
+        drawCircle(
+            color = tint,
+            radius = size.minDimension * 0.065f,
+            center = androidx.compose.ui.geometry.Offset(size.width * 0.75f, size.height * 0.25f)
+        )
+    }
+}
+
+private fun openInInstagram(context: Context, url: String) {
+    val clean = url.trim()
+    if (clean.isEmpty()) return
+    val uri = Uri.parse(clean)
+    val igIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+        setPackage("com.instagram.android")
+    }
+    try {
+        context.startActivity(igIntent)
+    } catch (_: Exception) {
+        try {
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, uri), "Open reel in"))
+        } catch (_: Exception) {
+            Toast.makeText(context, "No app available to open link", Toast.LENGTH_SHORT).show()
         }
     }
 }

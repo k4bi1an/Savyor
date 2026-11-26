@@ -19,10 +19,10 @@ interface ReelDao {
     @Query("SELECT * FROM reels WHERE category = :category AND status = :status ORDER BY created_at DESC")
     fun getReelsByCategoryAndStatus(category: String, status: String): Flow<List<ReelEntity>>
 
-    @Query("SELECT * FROM reels WHERE processing_state IN ('QUEUED', 'DOWNLOADING', 'ANALYZING') ORDER BY created_at ASC")
+    @Query("SELECT * FROM reels WHERE processing_state IN ('QUEUED', 'DOWNLOADING', 'UPLOADING', 'ANALYZING', 'FRAMES') ORDER BY created_at ASC")
     fun getActiveProcessingReels(): Flow<List<ReelEntity>>
 
-    @Query("SELECT * FROM reels WHERE processing_state IN ('QUEUED', 'DOWNLOADING', 'ANALYZING')")
+    @Query("SELECT * FROM reels WHERE processing_state IN ('QUEUED', 'DOWNLOADING', 'UPLOADING', 'ANALYZING', 'FRAMES')")
     suspend fun getActiveProcessingReelsOnce(): List<ReelEntity>
 
     @Query("SELECT * FROM reels ORDER BY created_at DESC")

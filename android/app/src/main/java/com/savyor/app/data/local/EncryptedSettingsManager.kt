@@ -41,6 +41,7 @@ class EncryptedSettingsManager(private val context: Context) {
         private const val KEY_YTDLP_LATEST_VERSION = "ytdlp_latest_version"
         private const val KEY_YTDLP_LAST_CHECKED_EPOCH_MS = "ytdlp_last_checked_epoch_ms"
         private const val KEY_YTDLP_UPDATE_STATUS = "ytdlp_update_status"
+        private const val KEY_GEMINI_MODEL_MODE = "gemini_model_mode"
     }
 
     var geminiApiKey: String
@@ -94,6 +95,10 @@ class EncryptedSettingsManager(private val context: Context) {
     var ytDlpUpdateStatus: String
         get() = prefs.getString(KEY_YTDLP_UPDATE_STATUS, "UNKNOWN") ?: "UNKNOWN"
         set(value) = prefs.edit().putString(KEY_YTDLP_UPDATE_STATUS, value).apply()
+
+    var geminiModelMode: String
+        get() = prefs.getString(KEY_GEMINI_MODEL_MODE, "AUTO") ?: "AUTO"
+        set(value) = prefs.edit().putString(KEY_GEMINI_MODEL_MODE, value).apply()
 
     fun isApiKeyConfigured(): Boolean = geminiApiKey.isNotBlank()
 

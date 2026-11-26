@@ -9,10 +9,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
@@ -56,6 +58,7 @@ fun SettingsScreen(
     val isExportingTelemetry by viewModel.isExportingTelemetry.collectAsState()
     val lastBackupMs by viewModel.lastBackupMs.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
+    val geminiModel by viewModel.geminiModel.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     var showApiKeyDialog by remember { mutableStateOf(false) }
@@ -236,6 +239,66 @@ fun SettingsScreen(
                             thickness = 1.dp
                         )
 
+                        Text(
+                            text = "Model",
+                            fontFamily = SavyorSansFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            color = colors.inkPrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            com.savyor.app.data.remote.GeminiModelOption.entries.forEach { option ->
+                                val selected = geminiModel == option
+                                val pillShape = RoundedCornerShape(12.dp)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(pillShape)
+                                        .then(
+                                            if (selected) {
+                                                Modifier.savyorLiquidCrystal(
+                                                    tier = CrystalTier.PILL,
+                                                    shape = pillShape,
+                                                    activeRim = true
+                                                )
+                                            } else {
+                                                Modifier
+                                                    .background(colors.surfaceRecessed)
+                                                    .border(1.dp, colors.borderSubtle, pillShape)
+                                            }
+                                        )
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            viewModel.setGeminiModel(option)
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = option.displayName,
+                                        fontFamily = SavyorSansFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                        color = if (selected) colors.inkPrimary else colors.inkSecondary
+                                    )
+                                    Text(
+                                        text = if (option == com.savyor.app.data.remote.GeminiModelOption.AUTO) "4-model chain" else option.modeKey,
+                                        fontFamily = SavyorMonoFamily,
+                                        fontSize = 10.5.sp,
+                                        color = if (selected) colors.inkSecondary else colors.inkMuted
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 12.dp),
+                            color = colors.borderSubtle,
+                            thickness = 1.dp
+                        )
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -255,7 +318,7 @@ fun SettingsScreen(
                             }
 
                             if (!connectionStatus.isNullOrBlank()) {
-                                val isSuccess = connectionStatus!!.startsWith("Success")
+                                val isSuccess = connectionStatus!!.startsWith("Connected")
                                 Text(
                                     text = if (isSuccess) "Connected" else "Failed",
                                     fontFamily = SavyorSansFamily,

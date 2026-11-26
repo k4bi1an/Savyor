@@ -1,11 +1,13 @@
 package com.savyor.app.data.remote
 
-import android.util.Base64
 import android.util.Log
+import androidx.annotation.Keep
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonDeserializer
 import com.google.gson.JsonParser
+import com.google.gson.JsonSyntaxException
+import com.google.gson.annotations.SerializedName
 import com.savyor.app.domain.model.GeminiReelAnalysis
 import com.savyor.app.domain.model.KeyMomentAnalysis
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +22,42 @@ import java.io.RandomAccessFile
 import java.util.concurrent.TimeUnit
 
 class GeminiApiException(val statusCode: Int, message: String) : Exception(message)
+class GeminiStageException(val stage: String, message: String, cause: Throwable? = null) : Exception(message, cause)
+
+@Keep
+data class GeminiPart(
+    @SerializedName("text") val text: String? = null,
+    @SerializedName("thought") val thought: Boolean? = null
+)
+
+@Keep
+data class GeminiContent(
+    @SerializedName("parts") val parts: List<GeminiPart>? = null
+)
+
+@Keep
+data class GeminiCandidate(
+    @SerializedName("content") val content: GeminiContent? = null,
+    @SerializedName("finishReason") val finishReason: String? = null
+)
+
+@Keep
+data class GeminiApiResponse(
+    @SerializedName("candidates") val candidates: List<GeminiCandidate>? = null
+)
+
+enum class GeminiModelOption(val modeKey: String, val displayName: String, val pingModelId: String) {
+    AUTO("AUTO", "Auto (Recommended)", "gemini-4-hydrogen"),
+    GEMINI_4_HYDROGEN("gemini-4-hydrogen", "Gemini 4 Hydrogen", "gemini-4-hydrogen"),
+    GEMINI_3_8_FLASH("gemini-3.8-flash", "Gemini 3.8 Flash", "gemini-3.8-flash"),
+    GEMINI_3_5_FLASH_LITE("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "gemini-3.5-flash-lite");
+
+    companion object {
+        fun fromModeKey(key: String?): GeminiModelOption {
+            return entries.firstOrNull { it.modeKey.equals(key, ignoreCase = true) } ?: AUTO
+        }
+    }
+}
 
 interface IGeminiClient {
     suspend fun analyzeReel(
@@ -28,7 +66,16 @@ interface IGeminiClient {
         prompt: String
     ): GeminiReelAnalysis
 
+    suspend fun analyzeReel(
+        apiKey: String,
+        videoFile: File,
+        prompt: String,
+        modelMode: String
+    ): GeminiReelAnalysis = analyzeReel(apiKey, videoFile, prompt)
+
     suspend fun testConnection(apiKey: String): Result<String>
+
+    suspend fun testConnection(apiKey: String, modelMode: String): Result<String> = testConnection(apiKey)
 }
 
 class GeminiFilesClient(
@@ -43,9 +90,42 @@ class GeminiFilesClient(
     companion object {
         private const val TAG = "GeminiClient"
         private const val BASE_URL = "https://generativelanguage.googleapis.com"
-        const val MODEL_NAME = "gemini-2.5-flash"
+        const val MODEL_NAME = "gemini-4-hydrogen"
         private const val CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB required chunk granularity
-        private const val INLINE_VIDEO_LIMIT_BYTES = 15L * 1024L * 1024L
+        private const val MAX_OUTPUT_TOKENS = 65536
+
+        private fun logI(msg: String) {
+            runCatching { Log.i(TAG, msg) }
+        }
+
+        private fun logW(msg: String) {
+            runCatching { Log.w(TAG, msg) }
+        }
+
+        private fun logE(msg: String) {
+            runCatching { Log.e(TAG, msg) }
+        }
+
+        val FALLBACK_CHAIN = listOf(
+            "gemini-4-hydrogen",
+            "gemini-3.8-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash"
+        )
+
+        private val THINKING_LOW_MODELS = setOf(
+            "gemini-4-hydrogen",
+            "gemini-3.8-flash"
+        )
+
+        fun resolveModelChain(modelMode: String?): List<String> {
+            val trimmed = modelMode?.trim().orEmpty()
+            return if (trimmed.isBlank() || trimmed.equals("AUTO", ignoreCase = true)) {
+                FALLBACK_CHAIN
+            } else {
+                listOf(trimmed)
+            }
+        }
 
         private val RESILIENT_GSON: Gson = GsonBuilder()
             .registerTypeAdapter(
@@ -91,16 +171,27 @@ class GeminiFilesClient(
         }
     }
 
-    override suspend fun testConnection(apiKey: String): Result<String> = withContext(Dispatchers.IO) {
+    override suspend fun testConnection(apiKey: String): Result<String> = testConnection(apiKey, "AUTO")
+
+    override suspend fun testConnection(apiKey: String, modelMode: String): Result<String> = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) {
+            return@withContext Result.failure(Exception("API key is blank"))
+        }
+        val targetModel = GeminiModelOption.fromModeKey(modelMode).pingModelId
         try {
-            val url = "$BASE_URL/v1beta/models/$MODEL_NAME?key=$apiKey"
-            val request = Request.Builder().url(url).get().build()
+            val url = "$BASE_URL/v1beta/models/$targetModel:generateContent?key=$apiKey"
+            val payload = buildPingPayload(targetModel)
+            val request = Request.Builder()
+                .url(url)
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .build()
+
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    Result.success("Connected to $MODEL_NAME (HTTP ${response.code})")
+                    Result.success("Connected ($targetModel)")
                 } else {
-                    val err = response.body?.string() ?: "HTTP ${response.code}"
-                    Result.failure(Exception("API Error: $err"))
+                    val err = extractConciseApiError(response.body?.string().orEmpty(), response.code)
+                    Result.failure(GeminiApiException(response.code, "HTTP ${response.code}: $err"))
                 }
             }
         } catch (e: Exception) {
@@ -112,55 +203,101 @@ class GeminiFilesClient(
         apiKey: String,
         videoFile: File,
         prompt: String
+    ): GeminiReelAnalysis = analyzeReel(apiKey, videoFile, prompt, "AUTO")
+
+    override suspend fun analyzeReel(
+        apiKey: String,
+        videoFile: File,
+        prompt: String,
+        modelMode: String
     ): GeminiReelAnalysis = withContext(Dispatchers.IO) {
         require(apiKey.isNotBlank()) { "Gemini API key is not configured. Please enter your key in Settings." }
         require(videoFile.exists() && videoFile.length() > 0) { "Video file does not exist or is empty" }
 
-        val fileLength = videoFile.length()
-        if (fileLength < INLINE_VIDEO_LIMIT_BYTES) {
-            Log.i(TAG, "Using fast inline video upload for ${videoFile.name} ($fileLength bytes) with $MODEL_NAME")
-            return@withContext executeWithRetry("GenerateContentInline") {
-                generateContentInline(apiKey, videoFile, prompt)
-            }
-        }
-
+        val modelChain = resolveModelChain(modelMode)
         var remoteFileName: String? = null
         try {
-            // 1. Resumable Upload with retry
-            Log.i(TAG, "Starting resumable upload for ${videoFile.name} (${videoFile.length()} bytes)")
-            val fileResource = executeWithRetry("Upload") {
-                uploadVideoResumable(apiKey, videoFile)
+            // 1. Upload once via Resumable Files API
+            logI("Starting resumable upload for ${videoFile.name} (${videoFile.length()} bytes)")
+            val fileResource = try {
+                executeWithRetry("Upload") {
+                    uploadVideoResumable(apiKey, videoFile)
+                }
+            } catch (e: Exception) {
+                throw GeminiStageException("Upload", e.message ?: "Video upload failed", e)
             }
             val fileUri = fileResource.fileUri
             remoteFileName = fileResource.fileName
-            Log.i(TAG, "Uploaded video: name=$remoteFileName uri=$fileUri")
+            logI("Uploaded video: name=$remoteFileName uri=$fileUri")
 
-            // 2. Wait for ACTIVE state
-            waitForFileActive(apiKey, remoteFileName)
-
-            // 3. Generate structured content with exponential backoff retry (2s, 5s, 10s)
-            Log.i(TAG, "Calling generateContent with model=$MODEL_NAME")
-            val analysis = executeWithRetry("GenerateContent") {
-                generateContentWithFile(apiKey, fileUri, prompt)
+            // 2. Poll until ACTIVE before calling generateContent
+            try {
+                waitForFileActive(apiKey, remoteFileName)
+            } catch (e: Exception) {
+                throw GeminiStageException("Upload", e.message ?: "Uploaded file processing failed", e)
             }
-            analysis
+
+            // 3. Iterate model fallback chain reusing the exact same fileUri
+            var lastError: Exception? = null
+            for ((index, modelId) in modelChain.withIndex()) {
+                try {
+                    logI("Attempting generateContent with model=$modelId (${index + 1}/${modelChain.size})")
+                    val analysis = generateContentWithFile(apiKey, modelId, fileUri, prompt)
+                    return@withContext analysis.copy(modelUsed = modelId)
+                } catch (e: Exception) {
+                    lastError = e
+                    val hasNext = index < modelChain.lastIndex
+                    if (hasNext && shouldFallbackToNextModel(e)) {
+                        logW("Model $modelId failed (${e.message}); falling back to ${modelChain[index + 1]}")
+                        continue
+                    }
+                    throw GeminiStageException("AI Analysis", e.message ?: "AI analysis failed", e)
+                }
+            }
+            throw GeminiStageException(
+                "AI Analysis",
+                lastError?.message ?: "All Gemini models failed",
+                lastError
+            )
         } finally {
             // 4. Always clean up remote file from Google Cloud
             remoteFileName?.let { name ->
                 try {
                     deleteRemoteFile(apiKey, name)
-                    Log.i(TAG, "Deleted remote Gemini file: $name")
+                    logI("Deleted remote Gemini file: $name")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to delete remote file $name: ${e.message}")
+                    logW("Failed to delete remote file $name: ${e.message}")
                 }
             }
         }
     }
 
+    internal fun shouldFallbackToNextModel(e: Exception): Boolean {
+        if (e is java.net.SocketTimeoutException || e is java.io.IOException) return true
+        if (e is GeminiApiException) {
+            // Never fall back on auth errors (401/403)
+            if (e.statusCode in listOf(401, 403)) return false
+            return e.statusCode in listOf(400, 404, 429, 500, 502, 503, 504)
+        }
+        val msg = e.message.orEmpty()
+        return listOf(
+            "MAX_TOKENS",
+            "truncated",
+            "429",
+            "503",
+            "500",
+            "404",
+            "400",
+            "JsonSyntaxException",
+            "MalformedJsonException",
+            "End of input"
+        ).any { msg.contains(it, ignoreCase = true) } || e is JsonSyntaxException
+    }
+
     private suspend fun <T> executeWithRetry(
         tag: String = "API",
         maxAttempts: Int = 3,
-        backoffDelaysMs: List<Long> = listOf(2000L, 5000L, 10000L),
+        backoffDelaysMs: List<Long> = listOf(1500L, 3500L, 7000L),
         block: suspend () -> T
     ): T {
         var lastException: Exception? = null
@@ -171,11 +308,11 @@ class GeminiFilesClient(
                 lastException = e
                 val isTransient = isTransientError(e)
                 if (!isTransient || attempt == maxAttempts) {
-                    Log.e(TAG, "[$tag] Fatal or exhausted attempt $attempt/$maxAttempts (${e.message})")
+                    logE("[$tag] Fatal or exhausted attempt $attempt/$maxAttempts (${e.message})")
                     throw e
                 }
-                val delayMs = backoffDelaysMs.getOrElse(attempt - 1) { 10000L }
-                Log.w(TAG, "[$tag] Transient error on attempt $attempt/$maxAttempts (${e.message}). Retrying in ${delayMs}ms...")
+                val delayMs = backoffDelaysMs.getOrElse(attempt - 1) { 7000L }
+                logW("[$tag] Transient error on attempt $attempt/$maxAttempts (${e.message}). Retrying in ${delayMs}ms...")
                 delay(delayMs)
             }
         }
@@ -193,6 +330,7 @@ class GeminiFilesClient(
         }
     }
 
+    @Keep
     private data class RemoteFileResource(val fileName: String, val fileUri: String)
 
     private fun uploadVideoResumable(apiKey: String, videoFile: File): RemoteFileResource {
@@ -211,8 +349,8 @@ class GeminiFilesClient(
 
         val uploadUrl = client.newCall(startRequest).execute().use { resp ->
             if (!resp.isSuccessful) {
-                val err = resp.body?.string().orEmpty()
-                throw GeminiApiException(resp.code, "Failed to start upload session: HTTP ${resp.code} - $err")
+                val err = extractConciseApiError(resp.body?.string().orEmpty(), resp.code)
+                throw GeminiApiException(resp.code, "HTTP ${resp.code}: $err")
             }
             resp.header("X-Goog-Upload-URL")
                 ?: throw Exception("Missing X-Goog-Upload-URL in upload initiation response")
@@ -243,8 +381,8 @@ class GeminiFilesClient(
 
                 client.newCall(chunkRequest).execute().use { resp ->
                     if (!resp.isSuccessful) {
-                        val err = resp.body?.string().orEmpty()
-                        throw GeminiApiException(resp.code, "Chunk upload failed at offset $offset: HTTP ${resp.code} - $err")
+                        val err = extractConciseApiError(resp.body?.string().orEmpty(), resp.code)
+                        throw GeminiApiException(resp.code, "Chunk upload HTTP ${resp.code}: $err")
                     }
                     if (isLastChunk) {
                         finalResponseBody = resp.body?.string().orEmpty()
@@ -273,19 +411,21 @@ class GeminiFilesClient(
             val request = Request.Builder().url(checkUrl).get().build()
             val state = client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) {
-                    val err = resp.body?.string().orEmpty()
-                    throw GeminiApiException(resp.code, "Failed checking file state: HTTP ${resp.code} - $err")
+                    val err = extractConciseApiError(resp.body?.string().orEmpty(), resp.code)
+                    throw GeminiApiException(resp.code, "File status HTTP ${resp.code}: $err")
                 }
                 val json = JsonParser.parseString(resp.body?.string().orEmpty()).asJsonObject
-                json.get("state")?.asString ?: "UNKNOWN"
+                json.get("state")?.asString
+                    ?: json.getAsJsonObject("file")?.get("state")?.asString
+                    ?: "UNKNOWN"
             }
 
             if (state == "ACTIVE") {
-                Log.i(TAG, "File $fileName is ACTIVE")
+                logI("File $fileName is ACTIVE")
                 return
             }
             if (state == "FAILED") {
-                throw Exception("Remote Gemini file processing failed state=$state")
+                throw Exception("Remote Gemini file processing failed (state=FAILED)")
             }
 
             delay(backoffMs.getOrElse(attempts) { 1500L })
@@ -294,92 +434,68 @@ class GeminiFilesClient(
         throw Exception("Timeout waiting for file $fileName to become ACTIVE")
     }
 
-    private fun generateContentInline(
-        apiKey: String,
-        videoFile: File,
+    internal fun buildGenerateContentPayload(
+        modelId: String,
+        fileUri: String,
         prompt: String
-    ): GeminiReelAnalysis {
-        val url = "$BASE_URL/v1beta/models/$MODEL_NAME:generateContent?key=$apiKey"
-        val encodedVideo = Base64.encodeToString(videoFile.readBytes(), Base64.NO_WRAP)
-
-        val requestBodyJson = """
-        {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "inline_data": {
-                                "mime_type": "video/mp4",
-                                "data": "$encodedVideo"
-                            }
-                        },
-                        {
-                            "text": ${gson.toJson(prompt)}
-                        }
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.2,
-                "responseMimeType": "application/json",
-                "thinkingConfig": {
-                    "thinkingBudget": 0
-                }
+    ): String {
+        val generationConfig = LinkedHashMap<String, Any>().apply {
+            put("responseMimeType", "application/json")
+            put("maxOutputTokens", MAX_OUTPUT_TOKENS)
+            if (modelId in THINKING_LOW_MODELS) {
+                put("thinkingConfig", mapOf("thinkingLevel" to "low"))
             }
         }
-        """.trimIndent()
 
-        val request = Request.Builder()
-            .url(url)
-            .post(requestBodyJson.toRequestBody("application/json".toMediaType()))
-            .build()
+        val payload = mapOf(
+            "contents" to listOf(
+                mapOf(
+                    "role" to "user",
+                    "parts" to listOf(
+                        mapOf(
+                            "file_data" to mapOf(
+                                "file_uri" to fileUri,
+                                "mime_type" to "video/mp4"
+                            )
+                        ),
+                        mapOf(
+                            "text" to prompt
+                        )
+                    )
+                )
+            ),
+            "generationConfig" to generationConfig
+        )
+        return gson.toJson(payload)
+    }
 
-        val (statusCode, responseBody) = client.newCall(request).execute().use { resp ->
-            Pair(resp.code, resp.body?.string().orEmpty())
+    internal fun buildPingPayload(modelId: String): String {
+        val generationConfig = LinkedHashMap<String, Any>().apply {
+            put("maxOutputTokens", 32)
+            if (modelId in THINKING_LOW_MODELS) {
+                put("thinkingConfig", mapOf("thinkingLevel" to "low"))
+            }
         }
-
-        if (statusCode !in 200..299) {
-            throw GeminiApiException(statusCode, "GenerateContent failed: HTTP $statusCode - $responseBody")
-        }
-
-        return parseGeminiResponse(responseBody)
+        val payload = mapOf(
+            "contents" to listOf(
+                mapOf(
+                    "role" to "user",
+                    "parts" to listOf(mapOf("text" to "Reply with OK"))
+                )
+            ),
+            "generationConfig" to generationConfig
+        )
+        return gson.toJson(payload)
     }
 
     private fun generateContentWithFile(
         apiKey: String,
+        modelId: String,
         fileUri: String,
         prompt: String
     ): GeminiReelAnalysis {
-        val url = "$BASE_URL/v1beta/models/$MODEL_NAME:generateContent?key=$apiKey"
-
-        val requestBodyJson = """
-        {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "file_data": {
-                                "file_uri": "$fileUri",
-                                "mime_type": "video/mp4"
-                            }
-                        },
-                        {
-                            "text": ${gson.toJson(prompt)}
-                        }
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.2,
-                "responseMimeType": "application/json",
-                "thinkingConfig": {
-                    "thinkingBudget": 0
-                }
-            }
-        }
-        """.trimIndent()
+        val url = "$BASE_URL/v1beta/models/$modelId:generateContent?key=$apiKey"
+        val requestBodyJson = buildGenerateContentPayload(modelId, fileUri, prompt)
 
         val request = Request.Builder()
             .url(url)
@@ -391,32 +507,73 @@ class GeminiFilesClient(
         }
 
         if (statusCode !in 200..299) {
-            throw GeminiApiException(statusCode, "GenerateContent failed: HTTP $statusCode - $responseBody")
+            val err = extractConciseApiError(responseBody, statusCode)
+            throw GeminiApiException(statusCode, "HTTP $statusCode ($modelId): $err")
         }
 
         return parseGeminiResponse(responseBody)
     }
 
     fun parseGeminiResponse(responseJson: String): GeminiReelAnalysis {
-        val root = JsonParser.parseString(responseJson).asJsonObject
-        val candidates = root.getAsJsonArray("candidates")
-            ?: throw Exception("No candidates returned from Gemini: $responseJson")
+        val apiResponse = gson.fromJson(responseJson, GeminiApiResponse::class.java)
+            ?: throw Exception("Empty response from Gemini")
+        val candidates = apiResponse.candidates
+            ?: throw Exception("No candidates returned from Gemini")
 
-        if (candidates.size() == 0) throw Exception("Empty candidates array from Gemini")
+        if (candidates.isEmpty()) throw Exception("Empty candidates array from Gemini")
 
-        val firstCandidate = candidates.get(0).asJsonObject
-        val content = firstCandidate.getAsJsonObject("content")
-        val parts = content.getAsJsonArray("parts")
-        val text = parts.get(0).asJsonObject.get("text").asString
+        val firstCandidate = candidates[0]
+        val finishReason = firstCandidate.finishReason
+        if (finishReason.equals("MAX_TOKENS", ignoreCase = true)) {
+            throw Exception("Response truncated (finishReason=MAX_TOKENS)")
+        }
+
+        val parts = firstCandidate.content?.parts
+        if (parts.isNullOrEmpty()) {
+            throw Exception("Gemini returned no parts (finishReason=${finishReason ?: "UNKNOWN"})")
+        }
+
+        // Skip internal reasoning parts where thought == true
+        val outputPart = parts.firstOrNull { part -> part.thought != true && !part.text.isNullOrBlank() }
+            ?: throw Exception("Gemini returned no non-thought text payload (finishReason=${finishReason ?: "UNKNOWN"})")
 
         // Clean any possible surrounding code block backticks
-        val cleanedJson = text.trim()
+        val cleanedJson = outputPart.text!!.trim()
             .removePrefix("```json")
             .removePrefix("```")
             .removeSuffix("```")
             .trim()
 
-        return RESILIENT_GSON.fromJson(cleanedJson, GeminiReelAnalysis::class.java)
+        val raw = RESILIENT_GSON.fromJson(cleanedJson, GeminiReelAnalysis::class.java)
+            ?: throw Exception("Failed to deserialize Gemini JSON response")
+
+        // Sanitize against Gson null injection on non-null Kotlin fields
+        @Suppress("USELESS_ELVIS")
+        return raw.copy(
+            title = raw.title ?: "",
+            category = raw.category ?: "Other",
+            tags = raw.tags ?: emptyList(),
+            summary = raw.summary ?: "",
+            useWhen = raw.useWhen ?: "",
+            visualMemory = raw.visualMemory ?: "",
+            sourceLanguage = raw.sourceLanguage ?: "English",
+            transcript = raw.transcript ?: "",
+            keyTakeaways = raw.keyTakeaways ?: emptyList(),
+            caveats = raw.caveats ?: emptyList(),
+            keyMoments = raw.keyMoments ?: emptyList(),
+            extractedResources = raw.extractedResources ?: emptyList(),
+            modelUsed = raw.modelUsed ?: ""
+        )
+    }
+
+    private fun extractConciseApiError(body: String, statusCode: Int): String {
+        if (body.isBlank()) return "Request failed"
+        return try {
+            val root = JsonParser.parseString(body).asJsonObject
+            root.getAsJsonObject("error")?.get("message")?.asString ?: body.take(140)
+        } catch (_: Exception) {
+            body.replace(Regex("\\s+"), " ").trim().take(140)
+        }
     }
 
     private fun deleteRemoteFile(apiKey: String, fileName: String) {

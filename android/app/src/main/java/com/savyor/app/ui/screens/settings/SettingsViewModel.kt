@@ -11,6 +11,7 @@ import com.savyor.app.data.local.BackupRestoreManager
 import com.savyor.app.data.local.EncryptedSettingsManager
 import com.savyor.app.data.local.SavyorDatabase
 import com.savyor.app.data.remote.GeminiFilesClient
+import com.savyor.app.data.remote.GeminiModelOption
 import com.savyor.app.data.remote.YtDlpEngine
 import com.savyor.app.ui.theme.SavyorThemeMode
 import com.savyor.app.ui.theme.SavyorThemeState
@@ -88,6 +89,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _themeMode = MutableStateFlow(SavyorThemeMode.fromString(settings.themeMode))
     val themeMode: StateFlow<SavyorThemeMode> = _themeMode.asStateFlow()
 
+    private val _geminiModel = MutableStateFlow(GeminiModelOption.fromModeKey(settings.geminiModelMode))
+    val geminiModel: StateFlow<GeminiModelOption> = _geminiModel.asStateFlow()
+
     init {
         refreshEngineVersion()
         calculateStorage()
@@ -113,6 +117,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         settings.themeMode = mode.name
         _themeMode.value = mode
         SavyorThemeState.setThemeMode(mode)
+    }
+
+    fun setGeminiModel(option: GeminiModelOption) {
+        settings.geminiModelMode = option.modeKey
+        _geminiModel.value = option
+        _connectionTestStatus.value = null
     }
 
     fun refreshEngineVersion() {
@@ -237,10 +247,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _isTestingConnection.value = true
         _connectionTestStatus.value = "Testing connection..."
         viewModelScope.launch {
-            val res = geminiClient.testConnection(key)
+            val res = geminiClient.testConnection(key, _geminiModel.value.modeKey)
             _isTestingConnection.value = false
             _connectionTestStatus.value = res.fold(
-                onSuccess = { "Success: $it" },
+                onSuccess = { it },
                 onFailure = { "Failed: ${it.message}" }
             )
         }

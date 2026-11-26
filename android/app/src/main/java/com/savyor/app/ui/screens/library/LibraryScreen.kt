@@ -1270,6 +1270,44 @@ fun SavyorPrimaryPillFab(
     }
 }
 
+private fun processingStageInfo(processingState: String): Pair<Float, String> {
+    return when (processingState.uppercase()) {
+        "QUEUED" -> 0.10f to "Queued..."
+        "DOWNLOADING" -> 0.25f to "Downloading..."
+        "UPLOADING" -> 0.55f to "Uploading..."
+        "ANALYZING" -> 0.80f to "Extracting notes..."
+        "FRAMES" -> 0.95f to "Capturing frames..."
+        else -> 0.20f to "Analyzing..."
+    }
+}
+
+@Composable
+private fun SavyorLinearProgressBar(
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    val colors = LocalSavyorColors.current
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "reel_stage_progress"
+    )
+    Box(
+        modifier = modifier
+            .height(4.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(colors.borderSubtle)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(animatedProgress)
+                .clip(RoundedCornerShape(2.dp))
+                .background(colors.unreadFg)
+        )
+    }
+}
+
 @Composable
 fun ActiveJobsSection(jobs: List<ReelEntity>) {
     val colors = LocalSavyorColors.current
@@ -1310,25 +1348,26 @@ fun ActiveJobsSection(jobs: List<ReelEntity>) {
                     fontWeight = FontWeight.SemiBold,
                     color = colors.inkPrimary
                 )
-                Spacer(modifier = Modifier.weight(1f))
-                CircularProgressIndicator(
-                    modifier = Modifier.size(13.dp),
-                    strokeWidth = 1.8.dp,
-                    color = colors.inkPrimary
-                )
             }
-            Spacer(modifier = Modifier.height(5.dp))
-            jobs.take(2).forEach { job ->
-                val stateText = when (job.processingState) {
-                    "DOWNLOADING" -> "Downloading progressive video stream"
-                    "ANALYZING" -> "Gemini multimodal note extraction"
-                    else -> "Queued in WorkManager"
+            Spacer(modifier = Modifier.height(6.dp))
+            jobs.take(2).forEachIndexed { idx, job ->
+                val (progress, stageLabel) = processingStageInfo(job.processingState)
+                val labelText = if (job.creator.isNotBlank()) {
+                    "@${job.creator} \u00B7 $stageLabel"
+                } else {
+                    stageLabel
                 }
+                if (idx > 0) Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "@${job.shortcode} · $stateText",
+                    text = labelText,
                     fontFamily = SavyorSansFamily,
                     fontSize = 11.5.sp,
                     color = colors.inkMuted
+                )
+                Spacer(modifier = Modifier.height(5.dp))
+                SavyorLinearProgressBar(
+                    progress = progress,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }
@@ -1343,9 +1382,10 @@ fun ReelGridCard(
 ) {
     val colors = LocalSavyorColors.current
     val cardShape = RoundedCornerShape(14.dp)
-    val isProcessing = reel.processingState in setOf("QUEUED", "DOWNLOADING", "ANALYZING") ||
+    val isProcessing = reel.processingState in setOf("QUEUED", "DOWNLOADING", "UPLOADING", "ANALYZING", "FRAMES") ||
         reel.status.equals("PROCESSING", ignoreCase = true)
     val isFailed = reel.processingState == "FAILED" || reel.status.equals("FAILED", ignoreCase = true)
+    var showErrorDialog by remember { mutableStateOf(false) }
 
     Card(
         shape = cardShape,
@@ -1387,33 +1427,29 @@ fun ReelGridCard(
                 }
 
                 if (isProcessing) {
-                    val stageLabel = when (reel.processingState.uppercase()) {
-                        "DOWNLOADING" -> "DOWNLOADING"
-                        "ANALYZING" -> "AI NOTES"
-                        else -> "ANALYZING"
-                    }
+                    val (progress, stageLabel) = processingStageInfo(reel.processingState)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(colors.bgCanvas.copy(alpha = 0.72f)),
+                            .background(colors.bgCanvas.copy(alpha = 0.72f))
+                            .padding(horizontal = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.5.dp,
-                                color = colors.unreadFg
+                            SavyorLinearProgressBar(
+                                progress = progress,
+                                modifier = Modifier.fillMaxWidth()
                             )
                             Text(
                                 text = stageLabel,
-                                fontFamily = SavyorMonoFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.8.sp,
-                                color = colors.inkPrimary
+                                fontFamily = SavyorSansFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.inkSecondary
                             )
                         }
                     }
@@ -1421,17 +1457,37 @@ fun ReelGridCard(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(colors.bgCanvas.copy(alpha = 0.75f)),
+                            .background(colors.bgCanvas.copy(alpha = 0.78f))
+                            .padding(horizontal = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        OutlinedButton(
-                            onClick = onRetry,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, colors.errorFg.copy(alpha = 0.6f))
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(Icons.Outlined.Refresh, contentDescription = null, tint = colors.errorFg, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Retry", fontFamily = SavyorSansFamily, fontSize = 12.sp, color = colors.errorFg)
+                            OutlinedButton(
+                                onClick = onRetry,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, colors.errorFg.copy(alpha = 0.6f))
+                            ) {
+                                Icon(Icons.Outlined.Refresh, contentDescription = null, tint = colors.errorFg, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Retry", fontFamily = SavyorSansFamily, fontSize = 12.sp, color = colors.errorFg)
+                            }
+                            if (!reel.errorMessage.isNullOrBlank()) {
+                                Text(
+                                    text = reel.errorMessage,
+                                    fontFamily = SavyorSansFamily,
+                                    fontSize = 10.sp,
+                                    color = colors.errorFg.copy(alpha = 0.9f),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    modifier = Modifier
+                                        .clickable { showErrorDialog = true }
+                                        .padding(horizontal = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -1465,7 +1521,13 @@ fun ReelGridCard(
 
             Column(modifier = Modifier.padding(10.dp)) {
                 Text(
-                    text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
+                    text = reel.title.ifBlank {
+                        when {
+                            isProcessing -> "Processing Reel..."
+                            isFailed -> "Failed Reel"
+                            else -> "Saved Reel"
+                        }
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -1474,27 +1536,28 @@ fun ReelGridCard(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Clean monochrome single-line footer: @handle · Category
-                val creatorText = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}"
+                // Clean monochrome single-line footer: @handle · Category (omit @handle if unavailable)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = creatorText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontSize = 11.sp,
-                        color = colors.inkMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    Text(
-                        text = " \u00B7 ",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontSize = 11.sp,
-                        color = colors.inkMuted
-                    )
+                    if (reel.creator.isNotBlank()) {
+                        Text(
+                            text = "@${reel.creator}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Text(
+                            text = " \u00B7 ",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted
+                        )
+                    }
                     Text(
                         text = reel.category,
                         style = MaterialTheme.typography.bodySmall,
@@ -1507,6 +1570,39 @@ fun ReelGridCard(
             }
         }
     }
+
+    if (showErrorDialog && !reel.errorMessage.isNullOrBlank()) {
+        ReelErrorDialog(
+            errorMessage = reel.errorMessage,
+            onRetry = { showErrorDialog = false; onRetry() },
+            onDismiss = { showErrorDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun ReelErrorDialog(
+    errorMessage: String,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = LocalSavyorColors.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surfaceElevated,
+        title = { Text("Processing Error", fontFamily = SavyorSansFamily, fontWeight = FontWeight.Bold, color = colors.inkPrimary) },
+        text = { Text(errorMessage, fontFamily = SavyorSansFamily, fontSize = 13.sp, color = colors.inkSecondary) },
+        confirmButton = {
+            TextButton(onClick = onRetry) {
+                Text("Retry", color = colors.unreadFg)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = colors.inkSecondary)
+            }
+        }
+    )
 }
 
 @Composable
@@ -1517,9 +1613,10 @@ fun ReelListRow(
 ) {
     val colors = LocalSavyorColors.current
     val shape = RoundedCornerShape(14.dp)
-    val isProcessing = reel.processingState in setOf("QUEUED", "DOWNLOADING", "ANALYZING") ||
+    val isProcessing = reel.processingState in setOf("QUEUED", "DOWNLOADING", "UPLOADING", "ANALYZING", "FRAMES") ||
         reel.status.equals("PROCESSING", ignoreCase = true)
     val isFailed = reel.processingState == "FAILED" || reel.status.equals("FAILED", ignoreCase = true)
+    var showErrorDialog by remember { mutableStateOf(false) }
 
     Card(
         shape = shape,
@@ -1566,16 +1663,17 @@ fun ReelListRow(
                     }
                 }
                 if (isProcessing) {
+                    val (progress, _) = processingStageInfo(reel.processingState)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(colors.bgCanvas.copy(alpha = 0.72f)),
+                            .background(colors.bgCanvas.copy(alpha = 0.72f))
+                            .padding(horizontal = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = colors.unreadFg
+                        SavyorLinearProgressBar(
+                            progress = progress,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
@@ -1585,14 +1683,45 @@ fun ReelListRow(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
+                    text = reel.title.ifBlank {
+                        when {
+                            isProcessing -> "Processing Reel..."
+                            isFailed -> "Failed Reel"
+                            else -> "Saved Reel"
+                        }
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     color = colors.inkPrimary
                 )
 
-                if (reel.useWhen.isNotBlank()) {
+                if (isProcessing) {
+                    val (progress, stageLabel) = processingStageInfo(reel.processingState)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stageLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp,
+                        color = colors.inkMuted
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SavyorLinearProgressBar(
+                        progress = progress,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else if (isFailed && !reel.errorMessage.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = reel.errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp,
+                        color = colors.errorFg,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { showErrorDialog = true }
+                    )
+                } else if (reel.useWhen.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     val cleanUseWhen = reel.useWhen.replace(
                         Regex("^(Use when:|Use when|Refer to this note when:?|Refer to this note when)\\s*", RegexOption.IGNORE_CASE),
@@ -1614,7 +1743,6 @@ fun ReelListRow(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    val creatorText = if (reel.creator.isNotBlank()) "@${reel.creator}" else "@${reel.shortcode}"
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f)
@@ -1628,22 +1756,24 @@ fun ReelListRow(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                         }
-                        Text(
-                            text = creatorText,
-                            fontFamily = SavyorSansFamily,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.inkMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        Text(
-                            text = " \u00B7 ",
-                            fontFamily = SavyorSansFamily,
-                            fontSize = 11.sp,
-                            color = colors.inkMuted
-                        )
+                        if (reel.creator.isNotBlank()) {
+                            Text(
+                                text = "@${reel.creator}",
+                                fontFamily = SavyorSansFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.inkMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Text(
+                                text = " \u00B7 ",
+                                fontFamily = SavyorSansFamily,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted
+                            )
+                        }
                         Text(
                             text = reel.category,
                             fontFamily = SavyorSansFamily,
@@ -1671,6 +1801,14 @@ fun ReelListRow(
             }
         }
     }
+
+    if (showErrorDialog && !reel.errorMessage.isNullOrBlank()) {
+        ReelErrorDialog(
+            errorMessage = reel.errorMessage,
+            onRetry = { showErrorDialog = false; onRetry() },
+            onDismiss = { showErrorDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -1679,6 +1817,10 @@ fun ReelCompactRow(
     onClick: () -> Unit
 ) {
     val colors = LocalSavyorColors.current
+    val isProcessing = reel.processingState in setOf("QUEUED", "DOWNLOADING", "UPLOADING", "ANALYZING", "FRAMES") ||
+        reel.status.equals("PROCESSING", ignoreCase = true)
+    val isFailed = reel.processingState == "FAILED" || reel.status.equals("FAILED", ignoreCase = true)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1717,18 +1859,54 @@ fun ReelCompactRow(
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        Text(
-            text = reel.title.ifBlank { "Reel @${reel.shortcode}" },
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = colors.inkPrimary,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = reel.title.ifBlank {
+                    when {
+                        isProcessing -> "Processing Reel..."
+                        isFailed -> "Failed Reel"
+                        else -> "Saved Reel"
+                    }
+                },
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = colors.inkPrimary
+            )
+            if (isProcessing) {
+                val (progress, stageLabel) = processingStageInfo(reel.processingState)
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SavyorLinearProgressBar(
+                        progress = progress,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = stageLabel,
+                        fontFamily = SavyorSansFamily,
+                        fontSize = 10.sp,
+                        color = colors.inkMuted
+                    )
+                }
+            } else if (isFailed && !reel.errorMessage.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = reel.errorMessage,
+                    fontFamily = SavyorSansFamily,
+                    fontSize = 10.5.sp,
+                    color = colors.errorFg,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.width(8.dp))
 
-        if (reel.isStarred) {
+        if (reel.isStarred && !isProcessing) {
             Icon(
                 imageVector = Icons.Filled.Star,
                 contentDescription = "Starred",
@@ -1738,7 +1916,7 @@ fun ReelCompactRow(
             Spacer(modifier = Modifier.width(6.dp))
         }
 
-        StatusBadge(status = reel.status)
+        StatusBadge(status = if (isProcessing) "PROCESSING" else reel.status)
     }
 }
 

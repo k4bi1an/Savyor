@@ -44,7 +44,7 @@ fun StatusBadge(
     val colors = LocalSavyorColors.current
     val upper = status.uppercase()
     val isUnread = upper == "UNREAD"
-    val isProcessing = upper in setOf("PROCESSING", "QUEUED", "DOWNLOADING", "ANALYZING")
+    val isProcessing = upper in setOf("PROCESSING", "QUEUED", "DOWNLOADING", "UPLOADING", "ANALYZING", "FRAMES")
 
     val displayLabel = if (isProcessing) "PROCESSING" else upper
 

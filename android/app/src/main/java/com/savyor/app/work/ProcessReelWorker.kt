@@ -59,9 +59,11 @@ class ProcessReelWorker(
 
         var downloadedVideoFile: File? = null
         val totalStartMs = SystemClock.elapsedRealtime()
+        var currentStage = "Download"
 
         return try {
-            // 1. Mark as DOWNLOADING (status stays PROCESSING until everything succeeds)
+            // 1. Mark as DOWNLOADING (25%)
+            currentStage = "Download"
             reelDao.updateProcessingAndStatus(shortcode, "DOWNLOADING", "PROCESSING", null)
 
             // 2. Download reel
@@ -73,8 +75,9 @@ class ProcessReelWorker(
             val downloadedBytes = downloadedVideoFile.length()
             val creator = downloadResult.creator.ifBlank { reel.creator }
 
-            // 3. Mark as ANALYZING
-            reelDao.updateProcessingAndStatus(shortcode, "ANALYZING", "PROCESSING", null)
+            // 3. Mark as UPLOADING (55%) before Gemini upload/analysis
+            currentStage = "Upload"
+            reelDao.updateProcessingAndStatus(shortcode, "UPLOADING", "PROCESSING", null)
 
             // Read duration before building prompt so Gemini never hallucinates out-of-bounds timestamps
             val videoDurationSec = (frameExtractor as? FrameExtractor)
@@ -94,14 +97,17 @@ class ProcessReelWorker(
                 videoDurationSec = videoDurationSec
             )
 
-            // 6. Call Gemini
-            Log.i(TAG, "Sending video to Gemini (${GeminiFilesClient.MODEL_NAME}) for multimodal analysis...")
+            // 6. Call Gemini (80% -> Extracting notes)
+            currentStage = "AI Analysis"
+            reelDao.updateProcessingAndStatus(shortcode, "ANALYZING", "PROCESSING", null)
+            Log.i(TAG, "Sending video to Gemini (mode=${settings.geminiModelMode}) for multimodal analysis...")
             val aiStartMs = SystemClock.elapsedRealtime()
             val apiKey = settings.geminiApiKey
             val analysis = geminiClient.analyzeReel(
                 apiKey = apiKey,
                 videoFile = downloadedVideoFile,
-                prompt = prompt
+                prompt = prompt,
+                modelMode = settings.geminiModelMode
             )
             val aiDurationMs = SystemClock.elapsedRealtime() - aiStartMs
 
@@ -121,7 +127,9 @@ class ProcessReelWorker(
                 transcript = analysis.transcript
             )
 
-            // 7. Extract thumbnail and key moment frames
+            // 7. Extract thumbnail and key moment frames (95% -> Capturing frames)
+            currentStage = "Frames"
+            reelDao.updateProcessingAndStatus(shortcode, "FRAMES", "PROCESSING", null)
             Log.i(TAG, "Extracting WebP frames via MediaMetadataRetriever...")
             val frameStartMs = SystemClock.elapsedRealtime()
             val boundedMoments = GeminiFilesClient.filterValidKeyMoments(analysis.keyMoments, videoDurationSec)
@@ -166,7 +174,7 @@ class ProcessReelWorker(
                 coverSizeBytes = framesResult.coverSizeBytes,
                 framesExtractedCount = framesResult.keyMomentsWithImages.size,
                 linksExtractedCount = mergedLinks.size,
-                aiModelUsed = GeminiFilesClient.MODEL_NAME,
+                aiModelUsed = analysis.modelUsed.ifBlank { GeminiFilesClient.MODEL_NAME },
                 processingError = null
             )
 
@@ -174,8 +182,13 @@ class ProcessReelWorker(
             Log.i(TAG, "Successfully processed note for reel $shortcode in ${totalDurationMs}ms: \"${analysis.title}\"")
             Result.success()
         } catch (e: Exception) {
-            val errorMsg = e.message ?: e.toString()
-            Log.e(TAG, "Failed processing reel $shortcode: $errorMsg", e)
+            val failingStage = (e as? GeminiStageException)?.stage ?: currentStage
+            val rawMsg = (e.cause?.message ?: e.message ?: e.toString())
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            val conciseReason = if (rawMsg.length > 140) rawMsg.take(137) + "..." else rawMsg
+            val errorMsg = "$failingStage failed: $conciseReason"
+            Log.e(TAG, "Failed processing reel $shortcode [$failingStage]: $rawMsg", e)
             reelDao.updateProcessingAndStatus(shortcode, "FAILED", "FAILED", errorMsg)
             Result.failure()
         } finally {

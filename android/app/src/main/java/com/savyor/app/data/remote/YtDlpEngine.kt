@@ -141,34 +141,12 @@ class YtDlpEngine(private val context: Context) : IReelDownloader {
         var creator = ""
         var caption = ""
 
-        // First attempt to get metadata JSON if possible
-        try {
-            val infoRequest = YoutubeDLRequest(url).apply {
-                addOption("--dump-json")
-                addOption("--no-playlist")
-                addOption("--socket-timeout", "15")
-                addOption("--add-header", "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
-            }
-            val infoOutput = StringBuilder()
-            YoutubeDL.getInstance().execute(infoRequest) { _, _, line ->
-                if (!line.isNullOrBlank()) infoOutput.append(line)
-            }
-            if (infoOutput.isNotEmpty()) {
-                val json = JsonParser.parseString(infoOutput.toString()).asJsonObject
-                creator = json.get("uploader")?.asString
-                    ?: json.get("channel")?.asString
-                    ?: json.get("uploader_id")?.asString
-                    ?: ""
-                caption = json.get("description")?.asString ?: ""
-            }
-        } catch (e: Exception) {
-            Log.w("YtDlpEngine", "Metadata fetch non-fatal error: ${e.message}")
-        }
-
         // Download compact single-file MP4 (<= 480p preferred for low-latency Gemini upload, 720p fallback)
+        // along with --write-info-json in a single request to avoid double-hitting Instagram.
         val request = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")
-            addOption("-f", "best[height<=480][ext=mp4]/best[height<=720][ext=mp4]/best[ext=mp4]/best")
+            addOption("--write-info-json")
+            addOption("-f", "b[height<=480][ext=mp4]/b[height<=720][ext=mp4]/b[ext=mp4]/b")
             addOption("-o", outputTemplate)
             addOption("--socket-timeout", "30")
             addOption("--add-header", "User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
@@ -177,12 +155,36 @@ class YtDlpEngine(private val context: Context) : IReelDownloader {
 
         YoutubeDL.getInstance().execute(request) { _, _, _ -> }
 
+        val infoJsonFile = File(downloadDir, "$shortcode.info.json")
+        if (infoJsonFile.exists()) {
+            try {
+                val json = JsonParser.parseString(infoJsonFile.readText()).asJsonObject
+                creator = json.get("uploader")?.asString
+                    ?: json.get("channel")?.asString
+                    ?: json.get("uploader_id")?.asString
+                    ?: ""
+                caption = json.get("description")?.asString ?: ""
+            } catch (e: Exception) {
+                Log.w("YtDlpEngine", "Failed reading info.json for $shortcode: ${e.message}")
+            } finally {
+                runCatching { infoJsonFile.delete() }
+            }
+        }
+
         val elapsed = System.currentTimeMillis() - startTime
-        val downloadedFiles = downloadDir.listFiles()?.filter { it.name.startsWith(shortcode) } ?: emptyList()
+        val downloadedFiles = downloadDir.listFiles()?.filter { file ->
+            file.name.startsWith(shortcode) &&
+                !file.name.endsWith(".json") &&
+                !file.name.endsWith(".part") &&
+                !file.name.endsWith(".ytdl")
+        } ?: emptyList()
         val videoFile = downloadedFiles.maxByOrNull { it.length() }
-            ?: throw Exception("Download succeeded but no output file found for shortcode $shortcode")
+            ?: throw Exception("No video file downloaded for reel")
 
         val fileSize = videoFile.length()
+        if (fileSize <= 0L) {
+            throw Exception("Downloaded video file is empty (0 bytes)")
+        }
         Log.i("YtDlpEngine", "Downloaded reel $shortcode: size=$fileSize bytes in ${elapsed}ms")
 
         return ReelDownloadResult(
