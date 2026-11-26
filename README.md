@@ -1,72 +1,63 @@
-# Savyor — Save the reel. Keep the idea.
+# Savyor
 
-**Savyor** is a native Kotlin + Jetpack Compose Android app that turns short-form Instagram Reels into permanent, searchable, self-contained English knowledge notes — while deleting the downloaded video file immediately after analysis so permanent video storage stays at **0 MB**.
+**Turn Instagram Reels into searchable, permanent notes with 0 MB of video stored.**
 
----
-
-## Key Features
-
-- **Share-Sheet Capture:** Share any Instagram Reel directly to **Savyor** from Instagram's Share Sheet (or paste a link). Queued in the background via `WorkManager` with optional Wi-Fi-only constraints.
-- **On-Device Stream Fetch & Self-Healing:** Uses `youtubedl-android` (no FFmpeg) to fetch progressive MP4 streams (`<=720p`) into app cache. Includes a 7-day Wi-Fi startup update check and a 12-hour self-healing update + retry if a download fails.
-- **Multimodal AI Extraction (`gemini-3.5-flash`):** Analyzes both video frames and audio/captions via the Google AI Studio Gemini Files API to extract:
-  - Anti-clickbait summaries and concise **"Use When"** cues
-  - Verbatim code snippets, CLI commands, recipes (ingredients + steps), workouts, and listicles
-  - Full English translation for non-English/multilingual reels (while preserving the original native transcript)
-  - Caveats, sponsor/satire notes, and extracted links/resources
-- **Key-Moment WebP Frames in Notes:** Extracts a cover thumbnail and 2–4 key-moment **WebP frames** from the reel via Android `MediaMetadataRetriever` (`FrameExtractor`) and embeds them directly in each note's **Visual Moments** carousel and zoomable fullscreen lightbox before deleting the temporary `.mp4`.
-- **Visual Memory Search (`visual_memory`):** Indexes 1–2 sentence visual appearance cues (clothing, setting, lighting, props) in SQLite FTS4/FTS5 so you can find a reel even if you only remember what the video looked like.
-- **Personal "My Note" & Starred Favorites:** Add inline personal observations (also FTS-indexed and included in Markdown exports/shares), star (`★`) favorites, and filter with a 1-tap `Starred` pill.
-- **Library Organization & Layouts:** Custom color-coded categories (with safe reassignment to `"Other"` on delete and few-shot prompt adaptation), sort (`Newest`, `Oldest`, `Title A–Z`), and 3-way view cycling (`Grid` → `List` → `Compact`).
-- **Share & Copy Markdown:** One-tap Copy Markdown or Android `ACTION_SEND` Share Note for WhatsApp, Samsung Notes, or Notion.
-- **1-Tap Backup & Restore (`.zip`):** Storage Access Framework (SAF) export to Google Drive or local storage (checkpoints SQLite WAL and archives `savyor.db` + WebP snapshots) and safe restore with Zip Slip path-traversal protection.
-
----
+Savyor is a native Android app that takes any Instagram Reel you share, extracts the key substance—summary, verbatim code and commands, recipes, steps, links, English and native transcripts, and key-moment snapshots—and immediately deletes the temporary video file.
 
 ## Screenshots
 
-See the full 14-page Light & Dark UI showcase in [Savyor_Android_UI_Screenshots.pdf](docs/android/screenshots/Savyor_Android_UI_Screenshots.pdf) or browse [docs/android/screenshots/](docs/android/screenshots/).
+<table>
+  <tr>
+    <td align="center"><img src="docs/assets/home_obsidian.png" alt="Savyor Home (Obsidian)" width="260" /></td>
+    <td align="center"><img src="docs/assets/detail_obsidian.png" alt="Savyor Reel Detail" width="260" /></td>
+    <td align="center"><img src="docs/assets/settings_obsidian.png" alt="Savyor Settings" width="260" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Home (Obsidian)</sub></td>
+    <td align="center"><sub>Reel Detail</sub></td>
+    <td align="center"><sub>Settings</sub></td>
+  </tr>
+</table>
 
-| Library (Grid) | Library (Compact) | Reel Detail + Key Frames & My Note | Manage Categories |
-| :---: | :---: | :---: | :---: |
-| <img src="docs/android/screenshots/library_categories_light.png" width="190"/> | <img src="docs/android/screenshots/library_compact_light.png" width="190"/> | <img src="docs/android/screenshots/detail_my_note_light.png" width="190"/> | <img src="docs/android/screenshots/manage_categories_light.png" width="190"/> |
+## What It Does
 
----
+- **0 MB permanent video storage:** Downloads the Reel temporarily, extracts notes and compressed WebP key frames, then deletes the `.mp4` automatically.
+- **Structured AI extraction:** Uses Google Gemini (`gemini-4-hydrogen` with automatic fallback to `gemini-3.8-flash` and `gemini-3.5-flash-lite`) to extract practical **Use When** cues, takeaways, code blocks, recipes, links, and translated transcripts.
+- **Offline full-text search and organization:** Search across titles, notes, transcripts, creators, and personal annotations with custom topics, status filters (`Unread`, `Reviewed`, `Tried`, `Archived`), date filters, and Grid, List, or Compact views.
+- **Private and local-first:** Everything stays in a local SQLite database on your phone with an encrypted API key and one-tap `.zip` backup and restore to Google Drive or device storage.
 
-## Project Structure
+## How to Set Up
 
-```text
-├── android/                        # Native Kotlin + Jetpack Compose Android app
-│   ├── app/src/main/java/com/savyor/app/
-│   │   ├── data/local/             # Room DB (v3, MIGRATION_1_2 -> MIGRATION_2_3), FTS, SAF Backup, LRU cache
-│   │   ├── data/remote/            # YtDlpEngine, GeminiFilesClient, GeminiPromptBuilder, FrameExtractor
-│   │   ├── domain/model/           # GeminiModelSchema
-│   │   ├── ui/screens/             # Library, ReelDetail, ManageCategories, Settings
-│   │   └── work/                   # WorkManagerScheduler, ProcessReelWorker
-│   ├── app/src/test/               # JVM unit tests (18 tests)
-│   └── app/src/androidTest/        # Emulator instrumented tests (13 tests)
-├── docs/android/screenshots/       # Light/Dark screenshots & consolidated PDF
-└── scripts/                        # Screenshot PDF generator & emulator seed script
-```
+1. **Install the APK**
+   - Download the APK from the [Releases](https://github.com/k4bi1an/Savyor/releases) page (most modern Android phones use `arm64-v8a`).
+   - Open the APK on your phone and allow installation from your browser or file manager if prompted.
 
----
+2. **Get a Free Gemini API Key**
+   - Go to [Google AI Studio](https://aistudio.google.com/apikey) and sign in with your Google account.
+   - Click **Create API Key** and copy it.
 
-## Build & Test
+3. **Connect Savyor**
+   - Open **Savyor > Settings > Gemini AI Configuration > Set Key**, paste your key, and save.
+   - Tap **Test Connection** to confirm it connects (the default **Auto** model chain handles rate limits automatically).
 
-1. Configure your Android SDK and optional release keystore in git-ignored `android/local.properties`:
-   ```properties
-   sdk.dir=C\:\\Path\\To\\Android\\Sdk
-   RELEASE_STORE_FILE=C\:\\Path\\To\\savyor-release.jks
-   RELEASE_STORE_PASSWORD=your_store_password
-   RELEASE_KEY_ALIAS=savyor
-   RELEASE_KEY_PASSWORD=your_key_password
-   ```
-2. Run JVM unit tests & instrumented tests:
-   ```powershell
-   .\android\gradlew.bat -p android testDebugUnitTest
-   .\android\gradlew.bat -p android connectedDebugAndroidTest
-   ```
-3. Build the minified R8 Release APK (`arm64-v8a` & `x86_64` ABI splits):
-   ```powershell
-   .\android\gradlew.bat -p android assembleRelease
-   ```
-   Output: `android/app/build/outputs/apk/release/app-arm64-v8a-release.apk` (~21.4 MB).
+4. **Enable Background Processing (Recommended on Samsung / One UI)**
+   - In **Savyor > Settings > Device Optimization**, tap **Open App Settings** and set Battery usage to **Unrestricted** so Reels finish analyzing even when your screen is off.
+
+## Quick Guide: How to Use
+
+- **Save a Reel:** In Instagram, tap **Share > Savyor** (or copy the Reel link and tap **+ Save Reel** in Savyor). A progress bar tracks downloading, note extraction, and frame capture in the background.
+- **Read and Review:** Tap any saved card to view its **Use When** cue, swipeable **Visual Moments** (tap any frame to zoom), and the **Notes**, **Transcript**, and **Links** tabs.
+- **Add Your Own Notes and Star Favorites:** Tap **My Note** inside any Reel to jot down personal reminders (included automatically when you copy or share Markdown), or tap the **Star** icon to favorite it.
+- **Open Original Reel:** Tap the **Instagram** button inside a Reel's detail view to jump straight back to the original post in Instagram.
+- **Organize and Filter:** Scroll to the end of the topic bar and tap **+ Topic** to create custom categories, or tap **Filter** to filter by status, starred items, date range, or sort order.
+- **Switch Theme:** Go to **Settings > Appearance** to switch between **System**, **Obsidian** (dark), and **Porcelain** (light).
+- **Backup and Restore:** Go to **Settings > Backup & Restore** to export your entire library (database and snapshots) as a `.zip` directly to Google Drive or phone storage, and restore it anytime on a new device.
+
+<details>
+<summary>Building from source</summary>
+
+1. Open the `android/` directory in Android Studio (JDK 17, Android SDK 34).
+2. Run `./gradlew assembleDebug` (or `gradlew.bat assembleDebug` on Windows).
+3. For signed release builds, configure your keystore in `android/local.properties` and run `./gradlew assembleRelease`.
+
+</details>
